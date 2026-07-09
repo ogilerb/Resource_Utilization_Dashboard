@@ -1,0 +1,21 @@
+# systemd unit for the Oracle-server host-metrics agent.
+# Install: see install.sh (copies this to /etc/systemd/system/).
+[Unit]
+Description=Telemetry host-metrics agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the node path / working dir to your deploy location.
+ExecStart=/usr/bin/node /opt/telemetry/agents/oracle/agent.mjs
+Environment=TELEMETRY_CONFIG=/etc/telemetry-agent/config.json
+Restart=always
+RestartSec=5
+# Runtime state dir for the buffer file (maps to /var/lib/telemetry-agent).
+StateDirectory=telemetry-agent
+DynamicUser=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

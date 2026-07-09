@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd LaunchAgent: keeps the telemetry agent running and restarts it on
+     login/wake. Installed to ~/Library/LaunchAgents/. The install script
+     rewrites __NODE__ and __AGENT_DIR__ to absolute paths. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.telemetry.agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__AGENT_DIR__/agent.mjs</string>
+    <string>--config</string>
+    <string>__AGENT_DIR__/config.json</string>
+  </array>
+
+  <!-- Restart if it ever exits; runs at login and resumes after wake. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Throttle restart loop so a misconfig doesn't spin. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>__AGENT_DIR__/agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>__AGENT_DIR__/agent.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://telemetry.example.com",
+  "apiKey": "tk_replace_with_key_from_register_response",
+  "intervalSeconds": 15,
+  "bufferFile": "/Users/YOU/Library/Application Support/telemetry-agent/buffer.ndjson"
+}

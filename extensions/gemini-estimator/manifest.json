@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Usage Estimator (Telemetry)",
+  "version": "0.1.0",
+  "description": "Estimates prompt/response token usage on the Gemini web app and reports daily totals to the telemetry platform.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://gemini.google.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": { "default_title": "Gemini Usage Estimator" }
+}

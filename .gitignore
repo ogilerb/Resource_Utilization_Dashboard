@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+server/dist/
+dashboard/dist/
+dashboard/.angular/
+
+# Env & secrets
+.env
+*.env
+!*.env.example
+server/.env
+agents/**/config.json
+
+# Agent runtime state
+*.ndjson
+agents/**/*.log
+
+# OS / editor
+.DS_Store
+*.log

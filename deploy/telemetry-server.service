@@ -1,0 +1,19 @@
+# systemd unit to run the telemetry server directly (non-Docker deploy).
+# Build first: (cd server && npm ci && npm run build). Put env in /etc/telemetry/server.env.
+[Unit]
+Description=Telemetry aggregation server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/telemetry/server
+EnvironmentFile=/etc/telemetry/server.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+User=telemetry
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

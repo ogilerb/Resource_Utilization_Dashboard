@@ -1,0 +1,48 @@
+# Full single-host stack: Postgres + telemetry server + dashboard (nginx).
+# One command brings everything up: `docker compose up -d --build`.
+# Only the `web` service is published (port 80); server + postgres stay on the
+# internal network. The server auto-migrates on boot.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: telemetry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telemetry}
+      POSTGRES_DB: telemetry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://telemetry:${POSTGRES_PASSWORD:-telemetry}@postgres:5432/telemetry
+      # Dashboard is same-origin behind nginx, so CORS can stay closed (or set it).
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      # Optional usage workers — leave blank to disable.
+      ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
+      GEMINI_BILLING_TABLE: ${GEMINI_BILLING_TABLE:-}
+    # Exposed only inside the compose network (not published to the host).
+    expose:
+      - "4000"
+
+  web:
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
