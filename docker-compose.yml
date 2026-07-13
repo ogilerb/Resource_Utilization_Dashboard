@@ -42,7 +42,8 @@ services:
     depends_on:
       - server
     ports:
-      - "80:80"
+      # Host port is configurable (WEB_PORT in .env); container always serves on 80.
+      - "${WEB_PORT:-80}:80"
 
 volumes:
   pgdata:
