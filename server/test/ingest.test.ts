@@ -112,6 +112,45 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     assert.equal(rows[0].tokens_in, 100);
   });
 
+  it('accepts usage gauge samples for a usage-type resource and queries them back', async () => {
+    const u = await (
+      await fetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'claude-pro', type: 'usage', interval_seconds: 900 }),
+      })
+    ).json();
+
+    const res = await fetch(`${ctx.baseUrl}/api/ingest/usage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': u.api_key },
+      body: JSON.stringify({
+        samples: [
+          { window: 'seven_day', utilization: 9, resets_at: '2026-07-17T04:00:00.490212+00:00' },
+          { window: 'five_hour', utilization: 11, resets_at: '2026-07-14T02:00:00+00:00' },
+          { window: 'extra_spend', utilization: 45, raw: { currency: 'CAD' } },
+        ],
+      }),
+    });
+    assert.equal(res.status, 202);
+
+    const q = await (
+      await fetch(`${ctx.baseUrl}/api/metrics/usage?resource_id=${u.resource.id}`)
+    ).json();
+    assert.equal(q.points.length, 3);
+    const weekly = q.points.find((p: any) => p.window_kind === 'seven_day');
+    assert.equal(weekly.utilization, 9);
+    assert.ok(weekly.resets_at);
+
+    // Rejects usage push with a compute key.
+    const bad = await fetch(`${ctx.baseUrl}/api/ingest/usage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': computeKey },
+      body: JSON.stringify({ samples: [{ window: 'seven_day', utilization: 1 }] }),
+    });
+    assert.equal(bad.status, 400);
+  });
+
   it('increments api usage when increment=true', async () => {
     const body = { day: '2026-07-02', tokens_in: 10, tokens_out: 5, cost: 0.1, increment: true };
     for (let i = 0; i < 3; i++) {

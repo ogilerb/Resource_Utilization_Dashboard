@@ -25,6 +25,7 @@ import { RegisterResponse, ResourceType } from '../models';
       <select [(ngModel)]="type">
         <option value="compute">compute — a machine reporting CPU/RAM</option>
         <option value="api">api — an LLM/API usage + cost source</option>
+        <option value="usage">usage — a subscription limit gauge (e.g. Claude Pro)</option>
       </select>
 
       @if (type === 'compute') {
@@ -72,7 +73,12 @@ export class RegisterComponent {
       .registerResource({
         name: this.name.trim(),
         type: this.type,
-        interval_seconds: this.type === 'compute' ? Number(this.intervalSeconds) : undefined,
+        interval_seconds:
+          this.type === 'compute'
+            ? Number(this.intervalSeconds)
+            : this.type === 'usage'
+              ? 900 // usage collectors sample every ~15 min
+              : undefined,
       })
       .subscribe({
         next: (r) => {

@@ -94,6 +94,25 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0.75rem
 .kv .k { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; }
 .kv .v { font-size: 1.1rem; }
 
+.gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.gauge { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1rem; }
+.gauge.headline { grid-column: 1 / -1; }
+.gauge .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.gauge .v { font-size: 1.8rem; font-weight: 600; margin: 0.15rem 0 0.4rem; }
+.gauge .v.ok { color: var(--online); }
+.gauge .v.warn { color: #ffb454; }
+.gauge .v.crit { color: var(--offline); }
+.gauge-bar { position: relative; height: 10px; border-radius: 5px; background: var(--bg); overflow: visible; margin-bottom: 0.4rem; }
+.gauge-bar > div:first-child { height: 100%; border-radius: 5px; }
+.gauge-bar > div.ok { background: var(--online); }
+.gauge-bar > div.warn { background: #ffb454; }
+.gauge-bar > div.crit { background: var(--offline); }
+.gauge-bar .pace-mark {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--text); opacity: 0.7;
+}
+.under { color: var(--accent); }
+
 .key-box {
   font-family: ui-monospace, monospace; background: #0b1b12; border: 1px solid #1f5b3a;
   color: #7cffb0; padding: 0.6rem 0.8rem; border-radius: 8px; word-break: break-all; margin-top: 0.5rem;

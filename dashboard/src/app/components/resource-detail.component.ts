@@ -7,11 +7,12 @@ import { Resource } from '../models';
 import { relativeTime } from '../util';
 import { ComputeChartComponent } from './compute-chart.component';
 import { ApiChartComponent } from './api-chart.component';
+import { UsagePanelComponent } from './usage-panel.component';
 
 @Component({
   selector: 'app-resource-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, ComputeChartComponent, ApiChartComponent],
+  imports: [CommonModule, RouterLink, ComputeChartComponent, ApiChartComponent, UsagePanelComponent],
   template: `
     <p><a routerLink="/">← Overview</a></p>
 
@@ -32,6 +33,7 @@ import { ApiChartComponent } from './api-chart.component';
         @switch (resource.type) {
           @case ('compute') { <app-compute-chart [resource]="resource" /> }
           @case ('api') { <app-api-chart [resource]="resource" /> }
+          @case ('usage') { <app-usage-panel [resource]="resource" /> }
         }
       </div>
     } @else if (error) {

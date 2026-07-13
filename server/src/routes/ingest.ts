@@ -52,6 +52,48 @@ ingestRouter.post(
   }
 );
 
+const usageSampleSchema = z.object({
+  window: z.string().min(1).max(64),
+  utilization: z.number().min(0).max(1000), // percent; allow >100 for over-limit spend
+  resets_at: z.string().datetime({ offset: true }).nullable().optional(),
+  raw: z.record(z.unknown()).optional(),
+});
+const usagePushSchema = z.object({
+  samples: z.array(usageSampleSchema).min(1).max(32),
+});
+
+// POST /api/ingest/usage — subscription usage gauges (e.g. Claude Pro).
+// A collector samples percent-of-limit values for one or more windows
+// ('five_hour', 'seven_day', 'extra_spend', ...) and pushes them in one call.
+// Each push appends time-series rows; the dashboard shows the latest per window
+// plus the trend over time.
+ingestRouter.post(
+  '/usage',
+  ingestLimiter,
+  requireApiKey,
+  validateBody(usagePushSchema),
+  async (req, res, next) => {
+    try {
+      const resource = req.resource!;
+      if (resource.type !== 'usage') {
+        res.status(400).json({ error: `Resource "${resource.name}" is not of type usage` });
+        return;
+      }
+      const body = req.body as z.infer<typeof usagePushSchema>;
+      for (const s of body.samples) {
+        await query(
+          `INSERT INTO usage_metrics (resource_id, window_kind, utilization, resets_at, raw)
+           VALUES ($1, $2, $3, $4, $5::jsonb)`,
+          [resource.id, s.window, s.utilization, s.resets_at ?? null, s.raw ? JSON.stringify(s.raw) : null]
+        );
+      }
+      res.status(202).json({ ok: true, inserted: body.samples.length });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 const apiUsageSchema = z.object({
   // Aggregation day (YYYY-MM-DD). Defaults to today (UTC) if absent.
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

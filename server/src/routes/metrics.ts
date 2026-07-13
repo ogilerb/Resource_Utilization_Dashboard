@@ -56,6 +56,27 @@ metricsRouter.get('/compute/hourly', validateQuery(rangeSchema), async (req, res
   }
 });
 
+// GET /api/metrics/usage?resource_id=&from=&to= — subscription usage gauge
+// samples (percent-of-limit per window over time).
+metricsRouter.get('/usage', validateQuery(rangeSchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
+    const { rows } = await query(
+      `SELECT timestamp, window_kind, utilization, resets_at, raw
+         FROM usage_metrics
+        WHERE resource_id = $1
+          AND ($2::timestamptz IS NULL OR timestamp >= $2)
+          AND ($3::timestamptz IS NULL OR timestamp <= $3)
+        ORDER BY timestamp ASC
+        LIMIT $4`,
+      [q.resource_id, q.from ?? null, q.to ?? null, q.limit]
+    );
+    res.json({ resource_id: q.resource_id, points: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/metrics/api?resource_id=&from=&to= — daily token/cost aggregates.
 metricsRouter.get('/api', validateQuery(rangeSchema), async (req, res, next) => {
   try {

@@ -9,6 +9,7 @@ import {
   RegisterResponse,
   Resource,
   ResourceType,
+  UsagePoint,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -37,6 +38,15 @@ export class ApiService {
     if (to) params = params.set('to', to);
     return this.http
       .get<{ points: ComputePoint[] }>(`${this.base}/api/metrics/compute`, { params })
+      .pipe(map((r) => r.points));
+  }
+
+  usageMetrics(resourceId: number, from?: string, to?: string): Observable<UsagePoint[]> {
+    let params = new HttpParams().set('resource_id', resourceId);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http
+      .get<{ points: UsagePoint[] }>(`${this.base}/api/metrics/usage`, { params })
       .pipe(map((r) => r.points));
   }
 

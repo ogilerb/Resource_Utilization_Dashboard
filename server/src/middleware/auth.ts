@@ -4,7 +4,7 @@ import { query } from '../db/pool.js';
 export interface AuthedResource {
   id: number;
   name: string;
-  type: 'compute' | 'api';
+  type: 'compute' | 'api' | 'usage';
   interval_seconds: number;
 }
 

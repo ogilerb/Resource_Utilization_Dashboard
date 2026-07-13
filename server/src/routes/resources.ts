@@ -9,7 +9,7 @@ export const resourcesRouter = Router();
 
 const createSchema = z.object({
   name: z.string().min(1).max(200),
-  type: z.enum(['compute', 'api']),
+  type: z.enum(['compute', 'api', 'usage']),
   interval_seconds: z.number().int().positive().max(3600).default(15),
   metadata: z.record(z.unknown()).default({}),
 });
@@ -39,6 +39,7 @@ resourcesRouter.get('/', async (_req, res, next) => {
          SELECT CASE r.type
                   WHEN 'compute' THEN (SELECT max(timestamp) FROM compute_metrics WHERE resource_id = r.id)
                   WHEN 'api'     THEN (SELECT max(timestamp) FROM api_metrics WHERE resource_id = r.id)
+                  WHEN 'usage'   THEN (SELECT max(timestamp) FROM usage_metrics WHERE resource_id = r.id)
                 END AS last_seen
        ) last ON true
        ORDER BY r.created_at ASC`,

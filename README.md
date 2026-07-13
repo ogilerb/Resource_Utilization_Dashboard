@@ -51,6 +51,7 @@ absence as a first-class state:
 | `agents/oracle/` | Node.js systemd agent (runs on the aggregator host) |
 | `agents/shared/` | Shared collector + buffer-and-retry core |
 | `extensions/gemini-estimator/` | MV3 browser extension estimating Gemini web-app usage |
+| `extensions/claude-usage/` | MV3 extension sampling Claude Pro usage gauges (weekly/5-hour/spend) from claude.ai |
 | `dashboard/` | Angular 18 app (Chart.js) |
 | `deploy/` | nginx TLS/WebSocket config, systemd unit for the server |
 | `docker-compose.yml` | Postgres + server for local dev / single-host prod |
@@ -114,6 +115,15 @@ file or `TELEMETRY_*` env vars.
   extension (chrome://extensions → Developer mode → Load unpacked), open its
   options, and paste the endpoint + an `api`-type resource key. It pushes daily
   token estimates to `/api/ingest/api` (`increment=true`).
+- **Claude Pro subscription (no Admin API on individual plans):** load
+  `extensions/claude-usage/` as an unpacked extension in a browser where you're
+  logged in to claude.ai. It samples the account-wide usage gauges (weekly,
+  5-hour session, extra-usage spend — the same numbers as Settings → Usage)
+  every 15 min and pushes them to `/api/ingest/usage`. Register a `usage`-type
+  resource for it; the dashboard shows gauges, a reset countdown, a weekly
+  trend, and a pacing marker (week-elapsed vs allowance-used). Account-wide, so
+  one browser covers web + Claude Code on every machine. Unofficial endpoint —
+  may need a selector/path fix if claude.ai changes.
 
 ## Production deploy (Oracle)
 

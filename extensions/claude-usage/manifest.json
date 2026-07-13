@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Usage Tracker (Telemetry)",
+  "version": "0.1.0",
+  "description": "Samples your Claude subscription usage gauges (5-hour, weekly, extra spend) from claude.ai and reports them to the telemetry platform.",
+  "permissions": ["alarms", "storage"],
+  "host_permissions": ["https://claude.ai/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "Claude Usage Tracker" }
+}

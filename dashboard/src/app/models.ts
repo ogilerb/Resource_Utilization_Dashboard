@@ -1,4 +1,4 @@
-export type ResourceType = 'compute' | 'api';
+export type ResourceType = 'compute' | 'api' | 'usage';
 
 export interface Resource {
   id: number;
@@ -23,6 +23,14 @@ export interface ApiPoint {
   tokens_in: number;
   tokens_out: number;
   cost: number;
+}
+
+export interface UsagePoint {
+  timestamp: string;
+  window_kind: string;
+  utilization: number;
+  resets_at: string | null;
+  raw: Record<string, unknown> | null;
 }
 
 export interface RegisterResponse {
