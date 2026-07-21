@@ -26,21 +26,27 @@ const RANGES: { label: string; days: number }[] = [
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="range-bar">
-      @for (r of ranges; track r.days) {
-        <button [class.active]="r.days === days" (click)="setRange(r.days)">{{ r.label }}</button>
+    @if (!compact) {
+      <div class="range-bar">
+        @for (r of ranges; track r.days) {
+          <button [class.active]="r.days === days" (click)="setRange(r.days)">{{ r.label }}</button>
+        }
+      </div>
+    }
+    <div class="kv" [class.compact]="compact">
+      @if (!compact) {
+        <div><span class="k">Tokens in</span><span class="v">{{ fmt(totals.in) }}</span></div>
+        <div><span class="k">Tokens out</span><span class="v">{{ fmt(totals.out) }}</span></div>
       }
-    </div>
-    <div class="kv">
-      <div><span class="k">Tokens in</span><span class="v">{{ fmt(totals.in) }}</span></div>
-      <div><span class="k">Tokens out</span><span class="v">{{ fmt(totals.out) }}</span></div>
       <div><span class="k">Cost</span><span class="v">\${{ totals.cost.toFixed(2) }}</span></div>
     </div>
-    <div class="chart-wrap"><canvas #canvas></canvas></div>
+    <div class="chart-wrap" [class.compact]="compact"><canvas #canvas></canvas></div>
   `,
 })
 export class ApiChartComponent implements AfterViewInit, OnDestroy {
   @Input({ required: true }) resource!: Resource;
+  // Mini mode for the overview: hides the range bar and condenses the totals.
+  @Input() compact = false;
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   private api = inject(ApiService);

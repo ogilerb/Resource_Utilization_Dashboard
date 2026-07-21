@@ -38,21 +38,27 @@ const RANGES: { label: string; ms: number }[] = [
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="range-bar">
-      @for (r of ranges; track r.label) {
-        <button [class.active]="r.ms === rangeMs" (click)="setRange(r.ms)">{{ r.label }}</button>
-      }
-      <span class="badge" style="margin-left:auto"
-        [class.online]="resource.online" [class.offline]="!resource.online">
-        <span class="dot"></span>{{ resource.online ? 'live' : 'offline' }}
-      </span>
-    </div>
-    <div class="chart-wrap"><canvas #canvas></canvas></div>
-    <p class="muted">Breaks in the line are periods with no data (machine asleep/offline).</p>
+    @if (!compact) {
+      <div class="range-bar">
+        @for (r of ranges; track r.label) {
+          <button [class.active]="r.ms === rangeMs" (click)="setRange(r.ms)">{{ r.label }}</button>
+        }
+        <span class="badge" style="margin-left:auto"
+          [class.online]="resource.online" [class.offline]="!resource.online">
+          <span class="dot"></span>{{ resource.online ? 'live' : 'offline' }}
+        </span>
+      </div>
+    }
+    <div class="chart-wrap" [class.compact]="compact"><canvas #canvas></canvas></div>
+    @if (!compact) {
+      <p class="muted">Breaks in the line are periods with no data (machine asleep/offline).</p>
+    }
   `,
 })
 export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) resource!: Resource;
+  // Mini mode for the overview: hides the range bar/caption and shrinks the chart.
+  @Input() compact = false;
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   private api = inject(ApiService);

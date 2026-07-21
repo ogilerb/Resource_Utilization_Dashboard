@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 import {
+  AnalyticsSummary,
   ApiPoint,
   ComputePoint,
   RegisterResponse,
@@ -57,5 +58,10 @@ export class ApiService {
     return this.http
       .get<{ points: ApiPoint[] }>(`${this.base}/api/metrics/api`, { params })
       .pipe(map((r) => r.points));
+  }
+
+  // Week-over-week / month-over-month comparison for every resource.
+  analyticsSummary(): Observable<AnalyticsSummary> {
+    return this.http.get<AnalyticsSummary>(`${this.base}/api/analytics/summary`);
   }
 }

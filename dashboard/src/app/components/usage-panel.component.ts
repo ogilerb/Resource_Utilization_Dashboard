@@ -42,7 +42,7 @@ const KIND_ORDER = ['seven_day', 'five_hour', 'extra_spend'];
     }
 
     <div class="gauges">
-      @for (g of gauges; track g.window_kind) {
+      @for (g of visibleGauges; track g.window_kind) {
         <div class="gauge" [class.headline]="g.window_kind === 'seven_day'">
           <div class="k">{{ label(g.window_kind) }}</div>
           <div class="v" [class]="severity(g.utilization)">{{ g.utilization.toFixed(0) }}%</div>
@@ -65,12 +65,18 @@ const KIND_ORDER = ['seven_day', 'five_hour', 'extra_spend'];
       }
     </div>
 
-    <h4 class="muted" style="margin:1.25rem 0 0.25rem">Weekly utilization trend</h4>
-    <div class="chart-wrap" style="height:200px"><canvas #canvas></canvas></div>
+    @if (!compact) {
+      <h4 class="muted" style="margin:1.25rem 0 0.25rem">Weekly utilization trend</h4>
+    }
+    <div class="chart-wrap" [class.compact]="compact" [style.height.px]="compact ? 120 : 200">
+      <canvas #canvas></canvas>
+    </div>
   `,
 })
 export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input({ required: true }) resource!: Resource;
+  // Mini mode for the overview: shows only the headline weekly gauge + trend.
+  @Input() compact = false;
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   private api = inject(ApiService);
@@ -80,6 +86,11 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
   gauges: Gauge[] = [];
   weekElapsedPct: number | null = null;
   private points: UsagePoint[] = [];
+
+  // In compact mode only the headline weekly gauge is shown.
+  get visibleGauges(): Gauge[] {
+    return this.compact ? this.gauges.filter((g) => g.window_kind === 'seven_day') : this.gauges;
+  }
 
   ngOnInit(): void {
     // Refresh every minute; the collector samples every ~15 min.

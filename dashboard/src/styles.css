@@ -117,3 +117,75 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0.75rem
   font-family: ui-monospace, monospace; background: #0b1b12; border: 1px solid #1f5b3a;
   color: #7cffb0; padding: 0.6rem 0.8rem; border-radius: 8px; word-break: break-all; margin-top: 0.5rem;
 }
+
+/* --- Overview toolbar --- */
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap; }
+.toolbar-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+/* --- Customizable board (drag-to-reorder + size presets) --- */
+.board { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+.board-card { display: flex; flex-direction: column; min-width: 0; }
+/* Column spans: 3-column grid, gap 1rem. */
+.board-card.span-1 { flex: 0 0 calc((100% - 2rem) / 3); max-width: calc((100% - 2rem) / 3); }
+.board-card.span-2 { flex: 0 0 calc((100% - 2rem) / 3 * 2 + 1rem); max-width: calc((100% - 2rem) / 3 * 2 + 1rem); }
+.board-card.span-3 { flex: 0 0 100%; max-width: 100%; }
+.board-card.editing { outline: 1px dashed var(--border); }
+
+.card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.card-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+.card-head .spacer { flex: 1 1 auto; }
+.card-body { flex: 1 1 auto; min-width: 0; }
+.card-foot { margin: 0.5rem 0 0; }
+
+.drag-handle { cursor: grab; color: var(--muted); font-size: 1.1rem; line-height: 1; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
+
+.icon-btn {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  padding: 0.1rem 0.45rem; border-radius: 6px; font-size: 0.85rem; line-height: 1.2; cursor: pointer;
+}
+
+.size-bar { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; }
+.size-bar button {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem; font-size: 0.75rem; border-radius: 6px;
+}
+.size-bar button.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* Compact (mini) chart heights on the board. */
+.chart-wrap.compact { height: 130px; }
+.kv.compact { gap: 0; margin-top: 0.25rem; }
+
+/* Angular CDK drag-drop visuals. */
+.cdk-drag-preview { border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.cdk-drag-placeholder { opacity: 0.35; }
+.cdk-drag-animating { transition: transform 200ms cubic-bezier(0, 0, 0.2, 1); }
+.board.cdk-drop-list-dragging .board-card:not(.cdk-drag-placeholder) { transition: transform 200ms cubic-bezier(0, 0, 0.2, 1); }
+
+/* On narrow screens every card goes full width. */
+@media (max-width: 760px) {
+  .board-card.span-1, .board-card.span-2, .board-card.span-3 { flex-basis: 100%; max-width: 100%; }
+}
+
+/* --- Analytics panel (WoW / MoM) --- */
+.card.analytics { margin-bottom: 1rem; }
+.analytics-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.analytics-grid { overflow-x: auto; }
+.analytics-row {
+  display: grid; grid-template-columns: minmax(120px, 2fr) 1.4fr 1fr 1fr 1fr;
+  gap: 0.5rem; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid var(--border); min-width: 480px;
+}
+.analytics-row:last-child { border-bottom: none; }
+.analytics-row.head { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.analytics-row .name { font-weight: 600; }
+.analytics-row .value { font-variant-numeric: tabular-nums; }
+
+/* --- Delta badge --- */
+.delta {
+  display: inline-flex; align-items: center; gap: 0.15rem; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: 999px;
+  background: var(--panel-2); color: var(--muted);
+}
+.delta.down { color: var(--online); }   /* decrease reads as "improved" for CPU/cost */
+.delta.up { color: var(--offline); }
+.delta.none { color: var(--muted); }
