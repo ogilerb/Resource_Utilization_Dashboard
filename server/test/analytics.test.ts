@@ -57,7 +57,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
     assert.equal(r.secondary.week.current, 1000);
   });
 
-  it('averages seven_day usage by calendar week, excluding other windows', async () => {
+  it('splits seven_day usage into one curve per reset cycle, excluding other windows', async () => {
     const usage = await (
       await afetch(`${ctx.baseUrl}/api/resources`, {
         method: 'POST',
@@ -66,28 +66,30 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
       })
     ).json();
     const usageId = usage.resource.id;
-    // This week: two seven_day samples (avg 50%) plus a five_hour sample that
-    // must be ignored. A prior week (8 days ago) forms a second bucket.
+    // Two reset cycles (distinct resets_at). cycle_start = resets_at - 7d, so the
+    // current cycle (reset 5 days out) starts 2 days ago; its two seven_day
+    // samples land at day 0 and day 3. A five_hour sample must be ignored, and a
+    // prior cycle (reset a week earlier) forms a second overlaid curve.
     await pool.query(
-      `INSERT INTO usage_metrics (resource_id, window_kind, utilization, timestamp) VALUES
-         ($1, 'seven_day', 40, now()),
-         ($1, 'seven_day', 60, now()),
-         ($1, 'five_hour', 100, now()),
-         ($1, 'seven_day', 20, now() - interval '8 days')`,
+      `INSERT INTO usage_metrics (resource_id, window_kind, utilization, resets_at, timestamp) VALUES
+         ($1, 'seven_day', 30, now() + interval '5 days', now() - interval '2 days'),
+         ($1, 'seven_day', 70, now() + interval '5 days', now() + interval '1 day'),
+         ($1, 'five_hour', 99, now() + interval '5 days', now()),
+         ($1, 'seven_day', 45, now() - interval '2 days', now() - interval '9 days')`,
       [usageId]
     );
     const { weeks } = await (
       await afetch(`${ctx.baseUrl}/api/analytics/usage-weekly?resource_id=${usageId}`)
     ).json();
-    assert.ok(weeks.length >= 2, 'has a bucket for this week and a prior week');
-    const current = weeks[weeks.length - 1]; // ascending → current week is last
-    assert.equal(current.avg_utilization, 50);
-    assert.equal(current.max_utilization, 60);
+    assert.equal(weeks.length, 2, 'one curve per reset cycle');
+    const current = weeks[weeks.length - 1]; // ascending by cycle_start → current last
     assert.equal(current.sample_count, 2); // five_hour excluded
-    assert.ok(
-      weeks.some((w: any) => w.avg_utilization === 20),
-      'prior-week bucket present'
-    );
+    // Points are ordered by time and carry days-since-reset (cycle_start = resets_at - 7d).
+    assert.equal(current.points.length, 2);
+    assert.equal(current.points[0].u, 30);
+    assert.equal(current.points[1].u, 70);
+    assert.ok(Math.abs(current.points[0].t - 0) < 0.01, `t≈0, got ${current.points[0].t}`);
+    assert.ok(Math.abs(current.points[1].t - 3) < 0.01, `t≈3, got ${current.points[1].t}`);
   });
 
   it('returns delta_pct null when the previous period has no data', async () => {

@@ -12,7 +12,7 @@ import {
   Resource,
   ResourceType,
   UsagePoint,
-  UsageWeekPoint,
+  UsageWeekSeries,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -82,12 +82,12 @@ export class ApiService {
     return this.http.get<AnalyticsSummary>(`${this.base}/api/analytics/summary`);
   }
 
-  // Average subscription usage % per calendar week (analytics graph view).
-  usageWeekly(weeks = 12, resourceId?: number): Observable<UsageWeekPoint[]> {
+  // Per-week subscription usage curves for the overlaid analytics graph view.
+  usageWeekly(weeks = 6, resourceId?: number): Observable<UsageWeekSeries[]> {
     let params = new HttpParams().set('weeks', weeks);
     if (resourceId != null) params = params.set('resource_id', resourceId);
     return this.http
-      .get<{ weeks: UsageWeekPoint[] }>(`${this.base}/api/analytics/usage-weekly`, { params })
+      .get<{ weeks: UsageWeekSeries[] }>(`${this.base}/api/analytics/usage-weekly`, { params })
       .pipe(map((r) => r.weeks));
   }
 }

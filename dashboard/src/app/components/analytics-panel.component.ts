@@ -1,7 +1,7 @@
 import { Component, ElementRef, Input, OnDestroy, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
-import { AnalyticsResource, UsageWeekPoint } from '../models';
+import { AnalyticsResource, UsageWeekSeries } from '../models';
 import { formatBytes, formatNumber } from '../util';
 import { ApiService } from '../services/api.service';
 import { DeltaBadgeComponent } from './delta-badge.component';
@@ -15,6 +15,11 @@ const METRIC_LABELS: Record<string, string> = {
   cost: 'Spend',
   tokens: 'Tokens',
 };
+
+// Categorical hues (dark-surface steps, validated for #182234 — CVD ≥ 10.3 in
+// the floor band, paired with the always-present legend). The most recent week
+// takes slot 0 (the dashboard accent) and is drawn boldest.
+const WEEK_COLORS = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767'];
 
 /**
  * Week-over-week / month-over-month summary with two views:
@@ -57,11 +62,13 @@ const METRIC_LABELS: Record<string, string> = {
             }
           </div>
         } @else {
-          <p class="muted" style="margin:0 0 0.75rem">Average weekly usage % (all subscriptions)</p>
+          <p class="muted" style="margin:0 0 0.75rem">
+            Weekly usage %, each week overlaid by days since its reset
+          </p>
           @if (weeklyLoaded && weekly.length === 0) {
             <p class="muted">No subscription usage samples yet. Install the Claude usage extension and point it here.</p>
           } @else {
-            <div class="chart-wrap" style="height:240px"><canvas #canvas></canvas></div>
+            <div class="chart-wrap" style="height:260px"><canvas #canvas></canvas></div>
           }
         }
       </div>
@@ -77,7 +84,7 @@ export class AnalyticsPanelComponent implements OnDestroy {
   private canvasRef?: ElementRef<HTMLCanvasElement>;
 
   view: 'table' | 'graph' = 'table';
-  weekly: UsageWeekPoint[] = [];
+  weekly: UsageWeekSeries[] = [];
   weeklyLoaded = false;
 
   // The canvas only exists in graph view (behind @if); build the chart when it
@@ -124,54 +131,54 @@ export class AnalyticsPanelComponent implements OnDestroy {
   }
 
   private loadWeekly(): void {
-    this.api.usageWeekly(12).subscribe((weeks) => {
+    this.api.usageWeekly(6).subscribe((weeks) => {
       this.weekly = weeks;
       this.weeklyLoaded = true;
       this.renderChart();
     });
   }
 
+  // Legend label for a cycle: "This week" for the newest, else its start date.
+  private weekLabel(w: UsageWeekSeries, isLatest: boolean): string {
+    if (isLatest) return 'This week';
+    return 'Week of ' + new Date(w.cycle_start).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
   private buildChart(): void {
     if (!this.canvasRef) return;
     this.chart?.destroy();
     const cfg: ChartConfiguration = {
-      type: 'bar',
-      data: {
-        labels: [],
-        datasets: [
-          {
-            label: 'Avg weekly usage %',
-            data: [],
-            backgroundColor: '#4f8cff',
-            borderRadius: 4,
-            maxBarThickness: 48,
-          },
-        ],
-      },
+      type: 'line',
+      data: { datasets: [] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        parsing: false,
+        interaction: { mode: 'nearest', intersect: false },
         scales: {
-          x: { ticks: { color: '#93a1b8' }, grid: { display: false } },
+          x: {
+            type: 'linear',
+            min: 0,
+            max: 7,
+            title: { display: true, text: 'Days since weekly reset', color: '#93a1b8' },
+            ticks: { color: '#93a1b8', stepSize: 1, callback: (v) => 'day ' + v },
+            grid: { color: '#22304a' },
+          },
           y: {
             min: 0,
             max: 100,
-            title: { display: true, text: 'Avg usage %', color: '#93a1b8' },
+            title: { display: true, text: 'Usage %', color: '#93a1b8' },
             ticks: { color: '#93a1b8', callback: (v) => v + '%' },
             grid: { color: '#22304a' },
           },
         },
         plugins: {
-          legend: { display: false },
+          legend: { reverse: true, labels: { color: '#e6ecf5', boxWidth: 12, usePointStyle: true } },
           tooltip: {
             callbacks: {
-              title: (items) => (items.length ? `Week of ${items[0].label}` : ''),
-              label: (ctx) => `Avg: ${Number(ctx.parsed.y).toFixed(1)}%`,
-              afterLabel: (ctx) => {
-                const w = this.weekly[ctx.dataIndex];
-                return w ? `Peak: ${w.max_utilization.toFixed(0)}% · ${w.sample_count} samples` : '';
-              },
+              title: (items) => (items.length ? `Day ${Number(items[0].parsed.x).toFixed(1)} since reset` : ''),
+              label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(1)}%`,
             },
           },
         },
@@ -182,10 +189,26 @@ export class AnalyticsPanelComponent implements OnDestroy {
 
   private renderChart(): void {
     if (!this.chart) return;
-    this.chart.data.labels = this.weekly.map((w) =>
-      new Date(w.week_start).toLocaleDateString([], { month: 'short', day: 'numeric' })
-    );
-    this.chart.data.datasets[0].data = this.weekly.map((w) => Number(w.avg_utilization));
+    const lastIdx = this.weekly.length - 1;
+    // One overlaid line per weekly cycle. Recency drives emphasis: newest is
+    // slot 0 (accent) and boldest; older weeks step through the palette, thinner.
+    this.chart.data.datasets = this.weekly.map((w, i) => {
+      const recency = lastIdx - i; // 0 = newest
+      const isLatest = recency === 0;
+      const color = WEEK_COLORS[recency % WEEK_COLORS.length];
+      return {
+        label: this.weekLabel(w, isLatest),
+        data: w.points.map((p) => ({ x: p.t, y: p.u })),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: isLatest ? 2.5 : 1.5,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.25,
+        spanGaps: true,
+        order: i, // higher order draws later; newest (largest i) sits on top
+      } as any;
+    });
     this.chart.update('none');
   }
 }

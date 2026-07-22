@@ -82,12 +82,14 @@ export interface AnalyticsSummary {
   resources: AnalyticsResource[];
 }
 
-// Average subscription usage % bucketed by calendar week (analytics graph view).
-export interface UsageWeekPoint {
-  week_start: string;
-  avg_utilization: number;
-  max_utilization: number;
+// One weekly usage cycle's full utilization curve, for overlaying weeks in the
+// analytics graph view. `t` = days elapsed since the cycle's reset (0..7),
+// `u` = utilization % at that point.
+export interface UsageWeekSeries {
+  cycle_start: string;
+  resets_at: string | null;
   sample_count: number;
+  points: { t: number; u: number }[];
 }
 
 // --- Dashboard layout customization (persisted per-browser in localStorage) ---
