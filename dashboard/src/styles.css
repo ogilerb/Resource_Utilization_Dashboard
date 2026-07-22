@@ -169,7 +169,10 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0.75rem
 
 /* --- Analytics panel (WoW / MoM) --- */
 .card.analytics { margin-bottom: 1rem; }
-.analytics-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.analytics-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.view-toggle { display: flex; gap: 0.4rem; }
+.view-toggle button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.view-toggle button.active { background: var(--accent); border-color: var(--accent); color: white; }
 .analytics-grid { overflow-x: auto; }
 .analytics-row {
   display: grid; grid-template-columns: minmax(120px, 2fr) 1.4fr 1fr 1fr 1fr;

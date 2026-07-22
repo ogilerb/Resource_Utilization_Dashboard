@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { query } from '../db/pool.js';
+import { validateQuery, getValidatedQuery } from '../middleware/validate.js';
 
 export const analyticsRouter = Router();
 
@@ -128,6 +130,37 @@ analyticsRouter.get('/summary', async (_req, res, next) => {
     });
 
     res.json({ resources: out });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const usageWeeklySchema = z.object({
+  // Optional: restrict to one usage resource. Omitted → averaged across all.
+  resource_id: z.coerce.number().int().positive().optional(),
+  weeks: z.coerce.number().int().positive().max(52).default(12),
+});
+
+// GET /api/analytics/usage-weekly?resource_id=&weeks= — average subscription
+// usage percentage bucketed by calendar week (ISO week, Monday start). Powers
+// the analytics graph view. Uses the headline 'seven_day' gauge only.
+analyticsRouter.get('/usage-weekly', validateQuery(usageWeeklySchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof usageWeeklySchema>>(req);
+    const { rows } = await query(
+      `SELECT date_trunc('week', timestamp) AS week_start,
+              avg(utilization)::real        AS avg_utilization,
+              max(utilization)::real        AS max_utilization,
+              count(*)::int                 AS sample_count
+         FROM usage_metrics
+        WHERE window_kind = 'seven_day'
+          AND ($1::int IS NULL OR resource_id = $1)
+          AND timestamp >= date_trunc('week', now()) - (($2 - 1) || ' weeks')::interval
+        GROUP BY 1
+        ORDER BY 1 ASC`,
+      [q.resource_id ?? null, q.weeks]
+    );
+    res.json({ weeks: rows });
   } catch (err) {
     next(err);
   }

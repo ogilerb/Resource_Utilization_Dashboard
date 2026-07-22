@@ -17,6 +17,8 @@ import { WsService } from '../services/ws.service';
 import { Resource } from '../models';
 import { formatBytes, withGaps } from '../util';
 
+type Bucket = 'hour' | 'day' | undefined;
+
 Chart.register(...registerables);
 
 interface Row {
@@ -25,12 +27,14 @@ interface Row {
   memory_bytes: number | null;
 }
 
-const RANGES: { label: string; ms: number }[] = [
+// `bucket` set → the server averages samples into per-hour/per-day points so
+// wide views stay readable instead of cramming thousands of raw 15s samples.
+const RANGES: { label: string; ms: number; bucket?: 'hour' | 'day' }[] = [
   { label: '15m', ms: 15 * 60_000 },
   { label: '1h', ms: 60 * 60_000 },
   { label: '6h', ms: 6 * 60 * 60_000 },
-  { label: '24h', ms: 24 * 60 * 60_000 },
-  { label: '7d', ms: 7 * 24 * 60 * 60_000 },
+  { label: '24h', ms: 24 * 60 * 60_000, bucket: 'hour' },
+  { label: '7d', ms: 7 * 24 * 60 * 60_000, bucket: 'day' },
 ];
 
 @Component({
@@ -51,7 +55,7 @@ const RANGES: { label: string; ms: number }[] = [
     }
     <div class="chart-wrap" [class.compact]="compact"><canvas #canvas></canvas></div>
     @if (!compact) {
-      <p class="muted">Breaks in the line are periods with no data (machine asleep/offline).</p>
+      <p class="muted">{{ caption }}</p>
     }
   `,
 })
@@ -69,6 +73,19 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
 
   ranges = RANGES;
   rangeMs = RANGES[1].ms; // default 1h
+
+  // Aggregation bucket for the current range (undefined = raw samples).
+  get bucket(): Bucket {
+    return this.ranges.find((r) => r.ms === this.rangeMs)?.bucket;
+  }
+
+  get caption(): string {
+    if (this.bucket === 'hour')
+      return 'Each point is a 1-hour average. Breaks are periods with no data (machine asleep/offline).';
+    if (this.bucket === 'day')
+      return 'Each point is a 1-day average. Breaks are periods with no data (machine asleep/offline).';
+    return 'Breaks in the line are periods with no data (machine asleep/offline).';
+  }
 
   ngAfterViewInit(): void {
     this.buildChart();
@@ -135,7 +152,14 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
               color: '#93a1b8',
               maxRotation: 0,
               autoSkipPadding: 20,
-              callback: (v) => new Date(Number(v)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              callback: (v) => {
+                const d = new Date(Number(v));
+                // Day buckets span calendar dates; show the date instead of a
+                // meaningless 00:00 time on every tick.
+                return this.bucket === 'day'
+                  ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              },
             },
             grid: { color: '#22304a' },
           },
@@ -155,12 +179,19 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
           legend: { labels: { color: '#e6ecf5' } },
           tooltip: {
             callbacks: {
-              title: (items) =>
-                items.length ? new Date(Number(items[0].parsed.x)).toLocaleString() : '',
-              label: (ctx) =>
-                ctx.dataset.label === 'Memory'
-                  ? `Memory: ${formatBytes(ctx.parsed.y)}`
-                  : `CPU: ${ctx.parsed.y?.toFixed(1)}%`,
+              title: (items) => {
+                if (!items.length) return '';
+                const d = new Date(Number(items[0].parsed.x));
+                return this.bucket === 'day'
+                  ? d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                  : d.toLocaleString();
+              },
+              label: (ctx) => {
+                const avg = this.bucket ? 'Avg ' : '';
+                return ctx.dataset.label === 'Memory'
+                  ? `${avg}Memory: ${formatBytes(ctx.parsed.y)}`
+                  : `${avg}CPU: ${ctx.parsed.y?.toFixed(1)}%`;
+              },
             },
           },
         },
@@ -171,14 +202,31 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
 
   private loadHistory(): void {
     const from = new Date(Date.now() - this.rangeMs).toISOString();
-    this.api.computeMetrics(this.resource.id, from).subscribe((points) => {
-      this.rows = points;
-      this.render();
-    });
+    const bucket = this.bucket;
+    if (bucket) {
+      // Wide view: let the server average samples into per-hour/per-day points.
+      this.api.computeBucketed(this.resource.id, bucket, from).subscribe((points) => {
+        this.rows = points.map((p) => ({
+          timestamp: p.timestamp,
+          cpu_percent: p.cpu_percent_avg,
+          memory_bytes: p.memory_bytes_avg == null ? null : Number(p.memory_bytes_avg),
+        }));
+        this.render();
+      });
+    } else {
+      this.api.computeMetrics(this.resource.id, from).subscribe((points) => {
+        this.rows = points;
+        this.render();
+      });
+    }
   }
 
   private subscribeLive(): void {
     this.wsSub = this.ws.compute(this.resource.id).subscribe((msg) => {
+      // Bucketed (24h/7d) views show server-side averages; a single raw live
+      // sample doesn't belong on that series, so skip it. The next range reload
+      // picks up new data.
+      if (this.bucket) return;
       this.rows.push({
         timestamp: msg.timestamp,
         cpu_percent: msg.cpu_percent,
@@ -198,13 +246,25 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
 
   private render(): void {
     if (!this.chart) return;
-    // Gap threshold: 3× the resource's reporting interval marks a break.
-    const gapMs = this.resource.interval_seconds * 3 * 1000;
+    // Gap threshold marks a break in the line where data is missing. For raw
+    // series that's 3× the reporting interval; for bucketed series it's 1.5×
+    // the bucket size (a whole missing hour/day).
+    const gapMs =
+      this.bucket === 'day'
+        ? 1.5 * 24 * 3_600_000
+        : this.bucket === 'hour'
+          ? 1.5 * 3_600_000
+          : this.resource.interval_seconds * 3 * 1000;
+    // Averaged views are sparse (≤24 or ≤7 points), so show markers to make
+    // each datapoint legible; raw views stay as a smooth line.
+    const pointRadius = this.bucket ? 3 : 0;
     const gapped = withGaps<Row>(this.rows, gapMs, (iso) => ({
       timestamp: iso,
       cpu_percent: null,
       memory_bytes: null,
     }));
+    (this.chart.data.datasets[0] as any).pointRadius = pointRadius;
+    (this.chart.data.datasets[1] as any).pointRadius = pointRadius;
     this.chart.data.datasets[0].data = gapped.map((r) => ({
       x: new Date(r.timestamp).getTime(),
       y: r.cpu_percent,

@@ -57,6 +57,39 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
     assert.equal(r.secondary.week.current, 1000);
   });
 
+  it('averages seven_day usage by calendar week, excluding other windows', async () => {
+    const usage = await (
+      await afetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'claude-usage', type: 'usage', interval_seconds: 900 }),
+      })
+    ).json();
+    const usageId = usage.resource.id;
+    // This week: two seven_day samples (avg 50%) plus a five_hour sample that
+    // must be ignored. A prior week (8 days ago) forms a second bucket.
+    await pool.query(
+      `INSERT INTO usage_metrics (resource_id, window_kind, utilization, timestamp) VALUES
+         ($1, 'seven_day', 40, now()),
+         ($1, 'seven_day', 60, now()),
+         ($1, 'five_hour', 100, now()),
+         ($1, 'seven_day', 20, now() - interval '8 days')`,
+      [usageId]
+    );
+    const { weeks } = await (
+      await afetch(`${ctx.baseUrl}/api/analytics/usage-weekly?resource_id=${usageId}`)
+    ).json();
+    assert.ok(weeks.length >= 2, 'has a bucket for this week and a prior week');
+    const current = weeks[weeks.length - 1]; // ascending → current week is last
+    assert.equal(current.avg_utilization, 50);
+    assert.equal(current.max_utilization, 60);
+    assert.equal(current.sample_count, 2); // five_hour excluded
+    assert.ok(
+      weeks.some((w: any) => w.avg_utilization === 20),
+      'prior-week bucket present'
+    );
+  });
+
   it('returns delta_pct null when the previous period has no data', async () => {
     // A fresh resource with only a current-week point → no previous baseline.
     const fresh = await (

@@ -6,11 +6,13 @@ import { environment } from '../../environments/environment';
 import {
   AnalyticsSummary,
   ApiPoint,
+  ComputeBucketPoint,
   ComputePoint,
   RegisterResponse,
   Resource,
   ResourceType,
   UsagePoint,
+  UsageWeekPoint,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -42,6 +44,21 @@ export class ApiService {
       .pipe(map((r) => r.points));
   }
 
+  // Per-hour or per-day averaged compute series for the wide 24h / 7d views.
+  computeBucketed(
+    resourceId: number,
+    bucket: 'hour' | 'day',
+    from?: string,
+    to?: string
+  ): Observable<ComputeBucketPoint[]> {
+    let params = new HttpParams().set('resource_id', resourceId).set('bucket', bucket);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http
+      .get<{ points: ComputeBucketPoint[] }>(`${this.base}/api/metrics/compute/bucketed`, { params })
+      .pipe(map((r) => r.points));
+  }
+
   usageMetrics(resourceId: number, from?: string, to?: string): Observable<UsagePoint[]> {
     let params = new HttpParams().set('resource_id', resourceId);
     if (from) params = params.set('from', from);
@@ -63,5 +80,14 @@ export class ApiService {
   // Week-over-week / month-over-month comparison for every resource.
   analyticsSummary(): Observable<AnalyticsSummary> {
     return this.http.get<AnalyticsSummary>(`${this.base}/api/analytics/summary`);
+  }
+
+  // Average subscription usage % per calendar week (analytics graph view).
+  usageWeekly(weeks = 12, resourceId?: number): Observable<UsageWeekPoint[]> {
+    let params = new HttpParams().set('weeks', weeks);
+    if (resourceId != null) params = params.set('resource_id', resourceId);
+    return this.http
+      .get<{ weeks: UsageWeekPoint[] }>(`${this.base}/api/analytics/usage-weekly`, { params })
+      .pipe(map((r) => r.weeks));
   }
 }

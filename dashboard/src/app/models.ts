@@ -18,6 +18,17 @@ export interface ComputePoint {
   memory_bytes: number | null;
 }
 
+// Server-aggregated compute point (per-hour or per-day average) used for the
+// wide 24h/7d chart views where raw 15s samples are too dense to read.
+export interface ComputeBucketPoint {
+  timestamp: string;
+  cpu_percent_avg: number | null;
+  cpu_percent_max: number | null;
+  memory_bytes_avg: number | null;
+  memory_bytes_max: number | null;
+  sample_count: number;
+}
+
 export interface ApiPoint {
   day: string;
   tokens_in: number;
@@ -69,6 +80,14 @@ export interface AnalyticsResource extends AnalyticsMetric {
 
 export interface AnalyticsSummary {
   resources: AnalyticsResource[];
+}
+
+// Average subscription usage % bucketed by calendar week (analytics graph view).
+export interface UsageWeekPoint {
+  week_start: string;
+  avg_utilization: number;
+  max_utilization: number;
+  sample_count: number;
 }
 
 // --- Dashboard layout customization (persisted per-browser in localStorage) ---

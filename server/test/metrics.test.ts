@@ -97,6 +97,39 @@ describe('resources + metrics', { skip: hasDb ? false : 'no test Postgres reacha
     assert.equal(points[0].cpu_percent, 10);
   });
 
+  it('averages raw samples into per-hour buckets', async () => {
+    await pool.query('TRUNCATE compute_metrics');
+    // Two samples in the 00:00 hour (avg 15%) and two in the 01:00 hour (avg 35%).
+    const rows: [number, string][] = [
+      [10, '2026-07-01T00:05:00Z'],
+      [20, '2026-07-01T00:45:00Z'],
+      [30, '2026-07-01T01:15:00Z'],
+      [40, '2026-07-01T01:50:00Z'],
+    ];
+    for (const [cpu, ts] of rows) {
+      await pool.query(
+        `INSERT INTO compute_metrics (resource_id, cpu_percent, memory_bytes, timestamp)
+         VALUES ($1, $2, 1000, $3)`,
+        [computeId, cpu, ts]
+      );
+    }
+    const url = `${ctx.baseUrl}/api/metrics/compute/bucketed?resource_id=${computeId}&bucket=hour&from=2026-07-01T00:00:00Z&to=2026-07-01T02:00:00Z`;
+    const { points } = await (await afetch(url)).json();
+    assert.equal(points.length, 2);
+    assert.equal(new Date(points[0].timestamp).toISOString(), '2026-07-01T00:00:00.000Z');
+    assert.equal(points[0].cpu_percent_avg, 15);
+    assert.equal(points[0].cpu_percent_max, 20);
+    assert.equal(points[0].sample_count, 2);
+    assert.equal(points[1].cpu_percent_avg, 35);
+  });
+
+  it('rejects a bucketed request with an invalid bucket', async () => {
+    const res = await afetch(
+      `${ctx.baseUrl}/api/metrics/compute/bucketed?resource_id=${computeId}&bucket=minute`
+    );
+    assert.equal(res.status, 400);
+  });
+
   it('validates query params', async () => {
     const res = await afetch(`${ctx.baseUrl}/api/metrics/compute?resource_id=notanumber`);
     assert.equal(res.status, 400);
