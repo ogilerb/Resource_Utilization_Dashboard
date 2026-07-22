@@ -11,6 +11,21 @@ export interface TestCtx {
   baseUrl: string;
 }
 
+// Matches the DASHBOARD_TOKEN set by the `test` npm script. Read/admin routes
+// are gated behind it; use `afetch` to attach it automatically.
+export const TEST_TOKEN = 'test-dashboard-token';
+
+/** fetch() with the dashboard token attached — use for read/admin/register routes. */
+export function afetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      authorization: `Bearer ${TEST_TOKEN}`,
+    },
+  });
+}
+
 /**
  * Returns true if a test Postgres is reachable. Tests skip (rather than fail)
  * when DB is unavailable, so `npm test` is meaningful even on a laptop with no

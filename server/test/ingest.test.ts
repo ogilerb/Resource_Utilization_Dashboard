@@ -2,6 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { pool } from '../src/db/pool.js';
 import {
+  afetch,
   dbAvailable,
   resetDb,
   startTestServer,
@@ -21,7 +22,7 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     await resetDb();
     ctx = await startTestServer();
 
-    const c = await fetch(`${ctx.baseUrl}/api/resources`, {
+    const c = await afetch(`${ctx.baseUrl}/api/resources`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'test-mac', type: 'compute', interval_seconds: 5 }),
@@ -30,7 +31,7 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     computeKey = cJson.api_key;
     computeId = cJson.resource.id;
 
-    const a = await fetch(`${ctx.baseUrl}/api/resources`, {
+    const a = await afetch(`${ctx.baseUrl}/api/resources`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'test-claude', type: 'api' }),
@@ -114,7 +115,7 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
 
   it('accepts usage gauge samples for a usage-type resource and queries them back', async () => {
     const u = await (
-      await fetch(`${ctx.baseUrl}/api/resources`, {
+      await afetch(`${ctx.baseUrl}/api/resources`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'claude-pro', type: 'usage', interval_seconds: 900 }),
@@ -135,7 +136,7 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     assert.equal(res.status, 202);
 
     const q = await (
-      await fetch(`${ctx.baseUrl}/api/metrics/usage?resource_id=${u.resource.id}`)
+      await afetch(`${ctx.baseUrl}/api/metrics/usage?resource_id=${u.resource.id}`)
     ).json();
     assert.equal(q.points.length, 3);
     const weekly = q.points.find((p: any) => p.window_kind === 'seven_day');

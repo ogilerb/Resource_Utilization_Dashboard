@@ -27,6 +27,12 @@ export const config = {
   port: num('PORT', 4000),
   corsOrigin: str('CORS_ORIGIN', '*'),
 
+  // Single shared secret gating all read/admin endpoints and the WebSocket.
+  // When empty the API fails CLOSED (refuses to serve those routes) so a deploy
+  // is never accidentally left open. Generate with:
+  //   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+  dashboardToken: process.env.DASHBOARD_TOKEN || '',
+
   db: {
     connectionString: process.env.DATABASE_URL || undefined,
     host: process.env.PGHOST,

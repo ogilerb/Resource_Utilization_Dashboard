@@ -2,6 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { pool } from '../src/db/pool.js';
 import {
+  afetch,
   dbAvailable,
   resetDb,
   startTestServer,
@@ -18,7 +19,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
   before(async () => {
     await resetDb();
     ctx = await startTestServer();
-    const c = await fetch(`${ctx.baseUrl}/api/resources`, {
+    const c = await afetch(`${ctx.baseUrl}/api/resources`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'analytics-mac', type: 'compute', interval_seconds: 5 }),
@@ -42,7 +43,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
   });
 
   it('computes week-over-week compute deltas with the right sign', async () => {
-    const { resources } = await (await fetch(`${ctx.baseUrl}/api/analytics/summary`)).json();
+    const { resources } = await (await afetch(`${ctx.baseUrl}/api/analytics/summary`)).json();
     const r = resources.find((x: any) => x.resource_id === computeId);
     assert.ok(r, 'compute resource present');
     assert.equal(r.type, 'compute');
@@ -59,7 +60,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
   it('returns delta_pct null when the previous period has no data', async () => {
     // A fresh resource with only a current-week point → no previous baseline.
     const fresh = await (
-      await fetch(`${ctx.baseUrl}/api/resources`, {
+      await afetch(`${ctx.baseUrl}/api/resources`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'fresh-mac', type: 'compute', interval_seconds: 5 }),
@@ -70,7 +71,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
        VALUES ($1, 30, now() - interval '1 day')`,
       [fresh.resource.id]
     );
-    const { resources } = await (await fetch(`${ctx.baseUrl}/api/analytics/summary`)).json();
+    const { resources } = await (await afetch(`${ctx.baseUrl}/api/analytics/summary`)).json();
     const r = resources.find((x: any) => x.resource_id === fresh.resource.id);
     assert.equal(r.week.current, 30);
     assert.equal(r.week.previous, null);

@@ -3,6 +3,7 @@ import { Observable, Subject } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 import { LiveComputeMsg } from '../models';
+import { getToken } from './token';
 
 /**
  * Single shared WebSocket to the server, with per-resource subscribe/unsubscribe
@@ -23,6 +24,9 @@ export class WsService {
     this.ws = new WebSocket(environment.wsUrl);
 
     this.ws.onopen = () => {
+      // Authenticate first — the server drops sockets that don't. Messages are
+      // ordered, so the auth is processed before the subscriptions that follow.
+      this.send({ action: 'auth', token: getToken() });
       // Re-subscribe to every channel after a (re)connect.
       for (const id of this.subscribed) this.send({ action: 'subscribe', resourceId: id });
     };

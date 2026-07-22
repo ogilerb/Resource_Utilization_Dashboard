@@ -6,6 +6,7 @@ import { resourcesRouter } from './routes/resources.js';
 import { metricsRouter } from './routes/metrics.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
+import { requireDashboardAuth } from './middleware/dashboardAuth.js';
 
 export function createApp() {
   const app = express();
@@ -18,11 +19,16 @@ export function createApp() {
   );
   app.use(express.json({ limit: '256kb' }));
 
+  // Health stays open for load-balancer/uptime checks (no data exposed).
   app.use(healthRouter);
+  // Ingest authenticates with per-agent API keys (see requireApiKey), not the
+  // dashboard token.
   app.use('/api/ingest', ingestRouter);
-  app.use('/api/resources', resourcesRouter);
-  app.use('/api/metrics', metricsRouter);
-  app.use('/api/analytics', analyticsRouter);
+  // Everything below reads or mutates dashboard data: gate behind the dashboard
+  // token. Fails closed when DASHBOARD_TOKEN is unset.
+  app.use('/api/resources', requireDashboardAuth, resourcesRouter);
+  app.use('/api/metrics', requireDashboardAuth, metricsRouter);
+  app.use('/api/analytics', requireDashboardAuth, analyticsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
