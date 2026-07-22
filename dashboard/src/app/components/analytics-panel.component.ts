@@ -1,7 +1,7 @@
 import { Component, ElementRef, Input, OnDestroy, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
-import { AnalyticsResource, UsageWeekSeries } from '../models';
+import { AnalyticsResource, WeeklyUsageResource } from '../models';
 import { formatBytes, formatNumber } from '../util';
 import { ApiService } from '../services/api.service';
 import { DeltaBadgeComponent } from './delta-badge.component';
@@ -16,17 +16,19 @@ const METRIC_LABELS: Record<string, string> = {
   tokens: 'Tokens',
 };
 
-// Categorical hues (dark-surface steps, validated for #182234 — CVD ≥ 10.3 in
-// the floor band, paired with the always-present legend). The most recent week
-// takes slot 0 (the dashboard accent) and is drawn boldest.
-const WEEK_COLORS = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767'];
+// Per-resource line colors: the dark-surface categorical steps from the data-viz
+// palette, in fixed order (validated for the #182234 panel surface; adjacent CVD
+// sits in the 8–12 floor band, which the always-present legend covers).
+const SERIES_COLORS = [
+  '#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767', '#d55181', '#d95926',
+];
 
 /**
  * Week-over-week / month-over-month summary with two views:
  *  - Table: per-resource current value + WoW/MoM deltas (fed by the overview,
  *    no extra request).
- *  - Graph: average subscription usage % bucketed by week, fetched lazily the
- *    first time the graph is opened.
+ *  - Graph: each resource's weekly usage % as its own line over time (compute
+ *    CPU %, subscription utilization %), fetched lazily when first opened.
  */
 @Component({
   selector: 'app-analytics-panel',
@@ -63,10 +65,10 @@ const WEEK_COLORS = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e6
           </div>
         } @else {
           <p class="muted" style="margin:0 0 0.75rem">
-            Weekly usage %, each week overlaid by days since its reset
+            Weekly average usage % per resource · compute CPU &amp; subscription utilization
           </p>
-          @if (weeklyLoaded && weekly.length === 0) {
-            <p class="muted">No subscription usage samples yet. Install the Claude usage extension and point it here.</p>
+          @if (linesLoaded && lines.length === 0) {
+            <p class="muted">No percentage-based usage yet (compute or subscription resources).</p>
           } @else {
             <div class="chart-wrap" style="height:260px"><canvas #canvas></canvas></div>
           }
@@ -84,8 +86,8 @@ export class AnalyticsPanelComponent implements OnDestroy {
   private canvasRef?: ElementRef<HTMLCanvasElement>;
 
   view: 'table' | 'graph' = 'table';
-  weekly: UsageWeekSeries[] = [];
-  weeklyLoaded = false;
+  lines: WeeklyUsageResource[] = [];
+  linesLoaded = false;
 
   // The canvas only exists in graph view (behind @if); build the chart when it
   // appears and tear it down when it's removed.
@@ -106,7 +108,7 @@ export class AnalyticsPanelComponent implements OnDestroy {
 
   setView(view: 'table' | 'graph'): void {
     this.view = view;
-    if (view === 'graph') this.loadWeekly();
+    if (view === 'graph') this.loadLines();
   }
 
   metricLabel(metric: string): string {
@@ -130,18 +132,12 @@ export class AnalyticsPanelComponent implements OnDestroy {
     }
   }
 
-  private loadWeekly(): void {
-    this.api.usageWeekly(6).subscribe((weeks) => {
-      this.weekly = weeks;
-      this.weeklyLoaded = true;
+  private loadLines(): void {
+    this.api.weeklyUsage(12).subscribe((resources) => {
+      this.lines = resources;
+      this.linesLoaded = true;
       this.renderChart();
     });
-  }
-
-  // Legend label for a cycle: "This week" for the newest, else its start date.
-  private weekLabel(w: UsageWeekSeries, isLatest: boolean): string {
-    if (isLatest) return 'This week';
-    return 'Week of ' + new Date(w.cycle_start).toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
   private buildChart(): void {
@@ -155,14 +151,19 @@ export class AnalyticsPanelComponent implements OnDestroy {
         maintainAspectRatio: false,
         animation: false,
         parsing: false,
-        interaction: { mode: 'nearest', intersect: false },
+        // Hovering a week shows every resource's value at that week for comparison.
+        interaction: { mode: 'index', intersect: false },
         scales: {
           x: {
             type: 'linear',
-            min: 0,
-            max: 7,
-            title: { display: true, text: 'Days since weekly reset', color: '#93a1b8' },
-            ticks: { color: '#93a1b8', stepSize: 1, callback: (v) => 'day ' + v },
+            title: { display: true, text: 'Week', color: '#93a1b8' },
+            ticks: {
+              color: '#93a1b8',
+              maxRotation: 0,
+              autoSkipPadding: 16,
+              callback: (v) =>
+                new Date(Number(v)).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+            },
             grid: { color: '#22304a' },
           },
           y: {
@@ -174,10 +175,17 @@ export class AnalyticsPanelComponent implements OnDestroy {
           },
         },
         plugins: {
-          legend: { reverse: true, labels: { color: '#e6ecf5', boxWidth: 12, usePointStyle: true } },
+          legend: { labels: { color: '#e6ecf5', boxWidth: 12, usePointStyle: true } },
           tooltip: {
             callbacks: {
-              title: (items) => (items.length ? `Day ${Number(items[0].parsed.x).toFixed(1)} since reset` : ''),
+              title: (items) =>
+                items.length
+                  ? 'Week of ' +
+                    new Date(Number(items[0].parsed.x)).toLocaleDateString([], {
+                      month: 'short',
+                      day: 'numeric',
+                    })
+                  : '',
               label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(1)}%`,
             },
           },
@@ -189,24 +197,20 @@ export class AnalyticsPanelComponent implements OnDestroy {
 
   private renderChart(): void {
     if (!this.chart) return;
-    const lastIdx = this.weekly.length - 1;
-    // One overlaid line per weekly cycle. Recency drives emphasis: newest is
-    // slot 0 (accent) and boldest; older weeks step through the palette, thinner.
-    this.chart.data.datasets = this.weekly.map((w, i) => {
-      const recency = lastIdx - i; // 0 = newest
-      const isLatest = recency === 0;
-      const color = WEEK_COLORS[recency % WEEK_COLORS.length];
+    // One line per resource, colored in a fixed order so a resource keeps its
+    // color regardless of how many others are present.
+    this.chart.data.datasets = this.lines.map((r, i) => {
+      const color = SERIES_COLORS[i % SERIES_COLORS.length];
       return {
-        label: this.weekLabel(w, isLatest),
-        data: w.points.map((p) => ({ x: p.t, y: p.u })),
+        label: r.name,
+        data: r.points.map((p) => ({ x: new Date(p.week_start).getTime(), y: p.pct })),
         borderColor: color,
         backgroundColor: color,
-        borderWidth: isLatest ? 2.5 : 1.5,
-        pointRadius: 0,
-        pointHoverRadius: 4,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
         tension: 0.25,
         spanGaps: true,
-        order: i, // higher order draws later; newest (largest i) sits on top
       } as any;
     });
     this.chart.update('none');

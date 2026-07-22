@@ -135,48 +135,47 @@ analyticsRouter.get('/summary', async (_req, res, next) => {
   }
 });
 
-const usageWeeklySchema = z.object({
-  // Optional: restrict to one usage resource. Omitted → all usage resources.
-  resource_id: z.coerce.number().int().positive().optional(),
-  weeks: z.coerce.number().int().positive().max(26).default(6),
+const weeklyUsageSchema = z.object({
+  weeks: z.coerce.number().int().positive().max(52).default(12),
 });
 
-// GET /api/analytics/usage-weekly?resource_id=&weeks= — the 'seven_day' usage
-// gauge broken into one full curve PER weekly cycle, so the graph view can
-// overlay each week on a shared "days since reset" x-axis (not aggregated to a
-// single number). Each cycle is keyed by its reset time: cycle_start =
-// resets_at - 7d, and every point carries `t` = days elapsed since cycle_start
-// (0..7). Cycles without a reset time fall back to the calendar week.
-analyticsRouter.get('/usage-weekly', validateQuery(usageWeeklySchema), async (req, res, next) => {
+// GET /api/analytics/weekly-usage?weeks= — weekly usage percentage per resource,
+// as one time-series line each, for overlaying every resource on a shared
+// week (x) vs usage-% (y) chart. Only resource types with a real percentage are
+// included: compute → avg(cpu_percent), usage → avg(utilization). API/cost
+// resources have no percentage and are omitted.
+analyticsRouter.get('/weekly-usage', validateQuery(weeklyUsageSchema), async (req, res, next) => {
   try {
-    const q = getValidatedQuery<z.infer<typeof usageWeeklySchema>>(req);
+    const q = getValidatedQuery<z.infer<typeof weeklyUsageSchema>>(req);
     const { rows } = await query(
-      `SELECT cycle_start, resets_at, sample_count, points
-         FROM (
-           SELECT cycle_start,
-                  max(resets_at)                                            AS resets_at,
-                  count(*)::int                                             AS sample_count,
-                  json_agg(json_build_object(
-                    't', round((extract(epoch FROM (timestamp - cycle_start)) / 86400.0)::numeric, 4),
-                    'u', utilization
-                  ) ORDER BY timestamp)                                     AS points
-             FROM (
-               SELECT timestamp, utilization, resets_at,
-                      COALESCE(resets_at - interval '7 days',
-                               date_trunc('week', timestamp)) AS cycle_start
-                 FROM usage_metrics
-                WHERE window_kind = 'seven_day'
-                  AND ($1::int IS NULL OR resource_id = $1)
-                  AND timestamp >= now() - (($2::int + 1) || ' weeks')::interval
-             ) s
-            GROUP BY cycle_start
-            ORDER BY cycle_start DESC
-            LIMIT $2::int
-         ) recent
-        ORDER BY cycle_start ASC`,
-      [q.resource_id ?? null, q.weeks]
+      `WITH weekly AS (
+         SELECT resource_id,
+                date_trunc('week', timestamp) AS week_start,
+                avg(cpu_percent)::real        AS pct
+           FROM compute_metrics
+          WHERE timestamp >= now() - ($1::int || ' weeks')::interval
+          GROUP BY resource_id, week_start
+         UNION ALL
+         SELECT resource_id,
+                date_trunc('week', timestamp) AS week_start,
+                avg(utilization)::real        AS pct
+           FROM usage_metrics
+          WHERE window_kind = 'seven_day'
+            AND timestamp >= now() - ($1::int || ' weeks')::interval
+          GROUP BY resource_id, week_start
+       )
+       SELECT r.id AS resource_id, r.name, r.type,
+              json_agg(json_build_object(
+                'week_start', w.week_start,
+                'pct', round(w.pct::numeric, 2)
+              ) ORDER BY w.week_start) AS points
+         FROM weekly w
+         JOIN resources r ON r.id = w.resource_id
+        GROUP BY r.id, r.name, r.type
+        ORDER BY r.type, r.name`,
+      [q.weeks]
     );
-    res.json({ weeks: rows });
+    res.json({ resources: rows });
   } catch (err) {
     next(err);
   }

@@ -57,7 +57,7 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
     assert.equal(r.secondary.week.current, 1000);
   });
 
-  it('splits seven_day usage into one curve per reset cycle, excluding other windows', async () => {
+  it('returns one weekly usage-% line per resource, only for % types', async () => {
     const usage = await (
       await afetch(`${ctx.baseUrl}/api/resources`, {
         method: 'POST',
@@ -66,30 +66,46 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
       })
     ).json();
     const usageId = usage.resource.id;
-    // Two reset cycles (distinct resets_at). cycle_start = resets_at - 7d, so the
-    // current cycle (reset 5 days out) starts 2 days ago; its two seven_day
-    // samples land at day 0 and day 3. A five_hour sample must be ignored, and a
-    // prior cycle (reset a week earlier) forms a second overlaid curve.
+    const apiRes = await (
+      await afetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'claude-api', type: 'api', interval_seconds: 3600 }),
+      })
+    ).json();
+    const apiId = apiRes.resource.id;
+
+    // computeId (from the outer before) already has current-week (40) and
+    // prior-week (50) CPU points → two weekly averages. Add subscription usage
+    // this week (avg 50, five_hour ignored) and API cost that must NOT appear.
     await pool.query(
-      `INSERT INTO usage_metrics (resource_id, window_kind, utilization, resets_at, timestamp) VALUES
-         ($1, 'seven_day', 30, now() + interval '5 days', now() - interval '2 days'),
-         ($1, 'seven_day', 70, now() + interval '5 days', now() + interval '1 day'),
-         ($1, 'five_hour', 99, now() + interval '5 days', now()),
-         ($1, 'seven_day', 45, now() - interval '2 days', now() - interval '9 days')`,
+      `INSERT INTO usage_metrics (resource_id, window_kind, utilization, timestamp) VALUES
+         ($1, 'seven_day', 40, now() - interval '1 hour'),
+         ($1, 'seven_day', 60, now() - interval '2 hours'),
+         ($1, 'five_hour', 99, now() - interval '1 hour')`,
       [usageId]
     );
-    const { weeks } = await (
-      await afetch(`${ctx.baseUrl}/api/analytics/usage-weekly?resource_id=${usageId}`)
+    await pool.query(
+      `INSERT INTO api_metrics (resource_id, day, cost) VALUES ($1, current_date, 12.34)`,
+      [apiId]
+    );
+
+    const { resources } = await (
+      await afetch(`${ctx.baseUrl}/api/analytics/weekly-usage`)
     ).json();
-    assert.equal(weeks.length, 2, 'one curve per reset cycle');
-    const current = weeks[weeks.length - 1]; // ascending by cycle_start → current last
-    assert.equal(current.sample_count, 2); // five_hour excluded
-    // Points are ordered by time and carry days-since-reset (cycle_start = resets_at - 7d).
-    assert.equal(current.points.length, 2);
-    assert.equal(current.points[0].u, 30);
-    assert.equal(current.points[1].u, 70);
-    assert.ok(Math.abs(current.points[0].t - 0) < 0.01, `t≈0, got ${current.points[0].t}`);
-    assert.ok(Math.abs(current.points[1].t - 3) < 0.01, `t≈3, got ${current.points[1].t}`);
+
+    const compute = resources.find((r: any) => r.resource_id === computeId);
+    const sub = resources.find((r: any) => r.resource_id === usageId);
+    assert.ok(compute, 'compute resource present');
+    assert.ok(sub, 'usage resource present');
+    assert.ok(!resources.some((r: any) => r.resource_id === apiId), 'api/cost resource excluded');
+
+    // Compute: two weekly points, latest week averages 40% CPU.
+    assert.equal(compute.points.length, 2);
+    assert.equal(compute.points[compute.points.length - 1].pct, 40);
+    // Subscription: this week's seven_day average is 50% (five_hour excluded).
+    const subLatest = sub.points[sub.points.length - 1];
+    assert.equal(subLatest.pct, 50);
   });
 
   it('returns delta_pct null when the previous period has no data', async () => {

@@ -82,14 +82,14 @@ export interface AnalyticsSummary {
   resources: AnalyticsResource[];
 }
 
-// One weekly usage cycle's full utilization curve, for overlaying weeks in the
-// analytics graph view. `t` = days elapsed since the cycle's reset (0..7),
-// `u` = utilization % at that point.
-export interface UsageWeekSeries {
-  cycle_start: string;
-  resets_at: string | null;
-  sample_count: number;
-  points: { t: number; u: number }[];
+// One resource's weekly usage-% trend, for overlaying every resource on the
+// analytics graph view (x = week, y = usage %). pct is the weekly average of the
+// resource's percentage metric (compute → CPU %, usage → subscription %).
+export interface WeeklyUsageResource {
+  resource_id: number;
+  name: string;
+  type: ResourceType;
+  points: { week_start: string; pct: number }[];
 }
 
 // --- Dashboard layout customization (persisted per-browser in localStorage) ---
