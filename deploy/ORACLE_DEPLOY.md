@@ -45,13 +45,19 @@ On the server, in the repo root, create a `.env` (compose reads it automatically
 
 ```bash
 cd ~/telemetry
-cat > .env <<'EOF'
+cat > .env <<EOF
 POSTGRES_PASSWORD=change-me-to-a-long-random-string
+# REQUIRED — dashboard access token. Without it, all read/admin endpoints and
+# the WebSocket fail closed (HTTP 503). Generate a strong one:
+DASHBOARD_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))" 2>/dev/null || openssl rand -base64 32)
 # Optional AI usage workers (leave blank to disable):
 ANTHROPIC_ADMIN_KEY=
 GEMINI_BILLING_TABLE=
 EOF
+cat .env    # copy the DASHBOARD_TOKEN value — you'll paste it into the dashboard once
 ```
+
+The dashboard prompts for this token on first load and remembers it (localStorage).
 
 ## 4. Launch
 
@@ -99,11 +105,13 @@ Two firewalls must both allow the port:
 
 Then browse to `http://<public-ip>`.
 
-> ⚠️ The dashboard has **no login**, and its read endpoints and
-> `POST /api/resources` are open. On a public IP, anyone who finds it can view
-> metrics and mint keys. Prefer Tailscale, or restrict the OCI rule to your own
-> IP, or add HTTPS + basic-auth (see `deploy/nginx.conf` and step 8) before
-> exposing it broadly.
+> ⚠️ Read/admin endpoints and the WebSocket are gated by `DASHBOARD_TOKEN`
+> (set in step 3) — without the token they return 401, and if the token is
+> unset they fail closed with 503. That secret is now the only thing between
+> the public internet and your data, so on a public IP: use a long random
+> token, always serve over **HTTPS** (step 8) so it isn't sent in the clear,
+> and prefer Tailscale or an OCI rule limited to your own IP anyway. Note the
+> token is not per-user and has no audit trail; treat a leak as full access.
 
 ---
 

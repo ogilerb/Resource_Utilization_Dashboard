@@ -29,6 +29,9 @@ services:
       DATABASE_URL: postgres://telemetry:${POSTGRES_PASSWORD:-telemetry}@postgres:5432/telemetry
       # Dashboard is same-origin behind nginx, so CORS can stay closed (or set it).
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      # Single shared secret gating all read/admin endpoints + the WebSocket.
+      # REQUIRED: if unset, those routes fail closed (503). Set it in .env.
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
       # Optional usage workers — leave blank to disable.
       ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
       GEMINI_BILLING_TABLE: ${GEMINI_BILLING_TABLE:-}
