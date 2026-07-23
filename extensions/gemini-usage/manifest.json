@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Usage Tracker (Telemetry)",
+  "version": "0.1.0",
+  "description": "Samples your Gemini subscription usage gauges (5-hour, weekly) from gemini.google.com/usage and reports them to the telemetry platform.",
+  "permissions": ["alarms", "storage", "declarativeNetRequest"],
+  "host_permissions": ["https://gemini.google.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content.js"],
+      "all_frames": false,
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": { "default_title": "Gemini Usage Tracker" }
+}

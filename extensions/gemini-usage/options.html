@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Gemini Usage Tracker — Options</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 420px; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 600; font-size: 0.9rem; }
+      input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+      button { margin-top: 1rem; padding: 0.5rem 1rem; margin-right: 0.5rem; }
+      small { color: #666; }
+      #status { margin-left: 0.25rem; }
+      #status.ok { color: green; }
+      #status.err { color: #c0392b; }
+    </style>
+  </head>
+  <body>
+    <h2>Gemini Usage Tracker</h2>
+    <p><small>
+      Reads your Gemini usage gauges (current 5-hour window and weekly) from
+      gemini.google.com/usage every ~10 minutes and reports them to your
+      telemetry platform. Register a <b>usage</b>-type resource in the dashboard
+      and paste its key here.
+    </small></p>
+    <p><small>
+      <b>Keep a gemini.google.com tab open.</b> Google renders the usage figures
+      client-side, so unlike the Claude tracker this needs a live tab to read
+      them from. You must also be logged in to Gemini in this browser.
+    </small></p>
+
+    <label for="endpoint">Telemetry endpoint</label>
+    <input id="endpoint" placeholder="http://100.x.y.z or https://telemetry.example.com" />
+
+    <label for="apiKey">API key (from the register response)</label>
+    <input id="apiKey" placeholder="tk_..." />
+
+    <div>
+      <button id="save">Save</button>
+      <button id="poll">Poll now</button>
+      <span id="status"></span>
+    </div>
+    <p><small id="last"></small></p>
+
+    <script src="options.js"></script>
+  </body>
+</html>

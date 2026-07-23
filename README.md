@@ -16,15 +16,20 @@ how to run it.
                                     +  WS +  │   ├─ /api/metrics/*  (history)
   Anthropic API ─┐                  workers) │   └─ /ws             (live compute)
   Gemini billing ┼─ pull (cron) ──▶         │
-  Gemini web app ┘  push (extension)  Postgres (resources, compute_metrics, api_metrics)
+  Gemini web app ┘  push (extension)  Postgres (resources, compute_metrics,
+                                                api_metrics, usage_metrics)
 ```
 
 - **Push model** for compute: agents POST datapoints; the resource is resolved
   from the per-agent API key, so adding a machine needs **no code/schema/route
   changes** — just register it and deploy the agent with its key.
 - **Pull model** for API usage: cron workers query the Anthropic Admin API and
-  the Google Cloud billing export; the Gemini *web app* (no official API) is
-  estimated by a browser extension that pushes token estimates.
+  the Google Cloud billing export.
+- **Extension model** for subscription plans, which expose no official API:
+  browser extensions read the vendors' own usage pages using your logged-in
+  session and push gauges to `/api/ingest/usage` (Claude Pro, Gemini). Keeping
+  collection in the browser means the session cookies never leave the machine
+  that owns them — the server only ever receives percentages.
 
 ### Offline / sleeping machines
 
@@ -50,7 +55,8 @@ absence as a first-class state:
 | `agents/windows/` | PowerShell/CIM agent + Task Scheduler definition |
 | `agents/oracle/` | Node.js systemd agent (runs on the aggregator host) |
 | `agents/shared/` | Shared collector + buffer-and-retry core |
-| `extensions/gemini-estimator/` | MV3 browser extension estimating Gemini web-app usage |
+| `extensions/gemini-estimator/` | MV3 browser extension estimating Gemini web-app token usage (char-count proxy) |
+| `extensions/gemini-usage/` | MV3 extension sampling real Gemini usage gauges (5-hour/weekly) from gemini.google.com/usage |
 | `extensions/claude-usage/` | MV3 extension sampling Claude Pro usage gauges (weekly/5-hour/spend) from claude.ai |
 | `dashboard/` | Angular 18 app (Chart.js) |
 | `deploy/` | nginx TLS/WebSocket config, systemd unit for the server |
@@ -115,6 +121,19 @@ file or `TELEMETRY_*` env vars.
   extension (chrome://extensions → Developer mode → Load unpacked), open its
   options, and paste the endpoint + an `api`-type resource key. It pushes daily
   token estimates to `/api/ingest/api` (`increment=true`).
+- **Gemini subscription usage (real gauges):** load `extensions/gemini-usage/` as
+  an unpacked extension in a browser where you're logged in to Gemini. It reads
+  the current 5-hour and weekly gauges from `gemini.google.com/usage` and pushes
+  them to `/api/ingest/usage` as `five_hour` / `seven_day` windows — the same
+  shape as the Claude tracker. Register a `usage`-type resource for it.
+  Notes: the figures are rendered client-side (nothing is server-rendered and the
+  batchexecute rpcid is undocumented), so the extension renders `/usage` in a
+  hidden same-origin iframe and needs **a Gemini tab open** to read from. Google
+  re-aggregates the value roughly every 12 min, so it polls every ~10 min and
+  skips pushing when the "Updated N min ago" label is unchanged. A gauge that
+  fails to parse is **omitted, never reported as 0** — a fake zero would render
+  as a real usage drop. Depends on the `data-test-id="gxu-currently"` /
+  `gxu-weekly` hooks; may need a selector fix after a Gemini redesign.
 - **Claude Pro subscription (no Admin API on individual plans):** load
   `extensions/claude-usage/` as an unpacked extension in a browser where you're
   logged in to claude.ai. It samples the account-wide usage gauges (weekly,
