@@ -1,0 +1,24 @@
+{
+  "dashboard": {
+    "endpoint": "https://telemetry.example.com",
+    "token": "replace_with_your_DASHBOARD_TOKEN"
+  },
+  "checkIntervalSeconds": 600,
+  "outputDir": "~/pacing-output",
+  "stateFile": "~/Library/Application Support/pacing-agent/state.json",
+  "tasksFile": "./tasks.json",
+  "dryRun": false,
+  "providers": {
+    "claude": {
+      "resourceName": "Claude",
+      "run": ["claude", "-p", "{prompt}"],
+      "weeklyCapPct": 85,
+      "fiveHourCapPct": 80,
+      "paceMarginPct": 10,
+      "stopIfExtraSpend": true,
+      "maxStaleMinutes": 40,
+      "postRunCooldownMinutes": 20,
+      "timeoutSeconds": 900
+    }
+  }
+}

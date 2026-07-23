@@ -1,0 +1,26 @@
+{
+  "_comment": "The work the pacer runs when you're behind pace. Make these things you actually want — the value is the saved output file. Placeholders: {prompt} is filled from a task's prompt; output/prompt support {date} (2026-07-23), {datetime}, {id}, {outputDir}. cooldownMinutes stops a task re-running too often (e.g. 720 = twice a day at most).",
+  "tasks": [
+    {
+      "id": "reading-digest",
+      "provider": "claude",
+      "prompt": "Give me a concise digest of notable developments this week in AI infrastructure and developer tooling. Group by theme, 5-8 bullets, each with why it matters in one line. Plain markdown.",
+      "output": "{outputDir}/reading-digest-{date}.md",
+      "cooldownMinutes": 720
+    },
+    {
+      "id": "commit-summary",
+      "provider": "claude",
+      "prompt": "Read the git log of the last 24 hours in ~/Desktop/Resource_Utilization_Dashboard and write a plain-language summary of what changed and why it matters, plus anything that looks risky or unfinished.",
+      "output": "{outputDir}/commit-summary-{datetime}.md",
+      "cooldownMinutes": 360
+    },
+    {
+      "id": "inbox-zero-thinking",
+      "provider": "claude",
+      "prompt": "Here is a recurring problem I want to think through: {date}'s standing question is how to reduce context-switching during deep work. Give me three concrete experiments to try this week, with the tradeoffs of each.",
+      "output": "{outputDir}/thinking-{date}.md",
+      "cooldownMinutes": 1440
+    }
+  ]
+}

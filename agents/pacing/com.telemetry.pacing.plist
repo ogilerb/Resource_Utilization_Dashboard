@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd LaunchAgent: keeps the pacing agent running and restarts it on
+     login/wake. Install to ~/Library/LaunchAgents/. Rewrite __NODE__ and
+     __AGENT_DIR__ to absolute paths (see README). The agent has its own
+     ~10-minute internal loop, so this just keeps the process alive. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.telemetry.pacing</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__AGENT_DIR__/pacing-agent.mjs</string>
+    <string>--config</string>
+    <string>__AGENT_DIR__/config.json</string>
+  </array>
+
+  <!-- Restart if it ever exits; runs at login and resumes after wake. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Throttle restart loop so a misconfig doesn't spin. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>__AGENT_DIR__/pacing.log</string>
+  <key>StandardErrorPath</key>
+  <string>__AGENT_DIR__/pacing.err.log</string>
+</dict>
+</plist>

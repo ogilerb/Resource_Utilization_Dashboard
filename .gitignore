@@ -12,10 +12,12 @@ dashboard/.angular/
 !*.env.example
 server/.env
 agents/**/config.json
+agents/**/tasks.json
 
 # Agent runtime state
 *.ndjson
 agents/**/*.log
+agents/**/state.json
 
 # OS / editor
 .DS_Store
