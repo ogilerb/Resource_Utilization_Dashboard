@@ -86,6 +86,58 @@ Make them things you'll actually read — the whole point over "burning quota" i
 worth keeping. When behind pace, the agent runs the first due task and picks up the next one on the
 following eligible cycle.
 
+## Chained tasks (self-continuing missions)
+
+A task with `"chain": true` pursues one standing **mission** across many turns. Each turn does a chunk
+of real work **and writes the prompt for the next turn**, carrying a running **journal** of state
+forward — so consecutive "behind pace" runs compound into ongoing progress instead of repeating.
+
+```json
+{
+  "id": "money-project",
+  "provider": "claude",
+  "chain": true,
+  "mission": "Create a project that will make me money with minimal ongoing work on my part … (buildable offline inside your working directory).",
+  "seedPrompt": "Turn 1: pick ONE offline-buildable product idea and scaffold its folder + README …",
+  "maxTurns": 50,
+  "workspace": "{outputDir}/{id}-workspace",
+  "output": "{outputDir}/{id}-turn{turn}-{datetime}.md",
+  "cooldownMinutes": 120
+}
+```
+
+- `mission` — the fixed goal, injected verbatim every turn. Edit it anytime; changes take effect next turn.
+- `seedPrompt` — the turn-1 instruction. Each later turn's instruction is written by the previous turn.
+- `maxTurns` — safety cap (default 100). The chain also stops when the model marks the mission `done`.
+- `workspace` — the **only** directory a turn can touch (default `{outputDir}/{id}-workspace`).
+- `output` — per-turn narration artifact. Chained tasks add `{turn}` and `{workDir}` placeholders.
+
+**How a turn works.** The agent builds the turn's prompt from `mission` + the journal + this turn's
+instruction, runs `claude` with its working directory set to `workspace`, then parses a trailing
+fenced block the model must emit:
+
+````
+```pacing-next
+{"done": false, "next_prompt": "…the next turn's instruction…", "journal": "…updated state summary…"}
+```
+````
+
+It saves the turn's narration to `output`, appends a section to a rolling **`{id}-journal.md`**, and
+records `nextPrompt` / `journal` / `turn` / `done` in `state.json` under `chains["<id>"]`. The durable
+result is the **files the model builds up in the workspace**. If a turn omits the block, the agent
+keeps the previous instruction and retries it next turn (never a hot-loop — cooldown and cap still bound it).
+
+**Confinement.** On first run the agent writes `<workspace>/.claude/settings.json` that pins the turn
+inside that directory with **no network**: `permissions.defaultMode: acceptEdits` (in-workspace edits
+run unattended), `sandbox.autoAllowBashIfSandboxed` (bash auto-runs only when it can be OS-sandboxed;
+anything reaching outside or online **fails closed**), an empty `sandbox.network` allow-list, and
+`WebFetch`/`WebSearch` denied. So the mission is bounded to what's buildable offline in one folder —
+code, content, plans — not deploys, signups, or API calls. It edits that file only if absent, so you
+can widen the boundary by hand if you ever want to.
+
+**Restart / stop.** Delete the task's entry under `chains` in `state.json` to start the mission over;
+lower `maxTurns` or set `done: true` there to stop it.
+
 ## How it decides (guardrails)
 
 Every `checkIntervalSeconds`, per provider:

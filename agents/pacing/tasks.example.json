@@ -1,5 +1,6 @@
 {
   "_comment": "The work the pacer runs when you're behind pace. Make these things you actually want — the value is the saved output file. Placeholders: {prompt} is filled from a task's prompt; output/prompt support {date} (2026-07-23), {datetime}, {id}, {outputDir}. cooldownMinutes stops a task re-running too often (e.g. 720 = twice a day at most).",
+  "_comment_chained": "A task with \"chain\": true pursues a standing \"mission\" across many turns: each turn does a chunk of work AND writes the prompt for the next turn, carrying a \"journal\" of state forward. It runs confined to its own \"workspace\" directory with no network (build offline: code/content/plans, not deploys). Extra placeholders in a chained task: {turn} and {workDir}. Seeded from \"seedPrompt\"; stops at the model's done flag or \"maxTurns\". State lives in the agent's state.json under chains[id]; delete that entry to restart. A running {id}-journal.md is written alongside the output.",
   "tasks": [
     {
       "id": "reading-digest",
@@ -21,6 +22,17 @@
       "prompt": "Here is a recurring problem I want to think through: {date}'s standing question is how to reduce context-switching during deep work. Give me three concrete experiments to try this week, with the tradeoffs of each.",
       "output": "{outputDir}/thinking-{date}.md",
       "cooldownMinutes": 1440
+    },
+    {
+      "id": "money-project",
+      "provider": "claude",
+      "chain": true,
+      "mission": "Create a project that will make me money with minimal ongoing work on my part. It must be buildable entirely offline inside your working directory (no deploys, accounts, or network) — e.g. a sellable code product/template, a digital info product, or reusable content — packaged so that I can take the finished folder to market with little effort.",
+      "seedPrompt": "Turn 1: Pick ONE concrete, offline-buildable product idea that best fits the mission. In a few lines justify why it can earn with minimal upkeep. Then scaffold the project folder and write a README.md stating what it is, who buys it, how it makes money, and the build plan for the next few turns.",
+      "maxTurns": 50,
+      "workspace": "{outputDir}/{id}-workspace",
+      "output": "{outputDir}/{id}-turn{turn}-{datetime}.md",
+      "cooldownMinutes": 120
     }
   ]
 }

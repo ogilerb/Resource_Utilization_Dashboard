@@ -59,13 +59,47 @@ Every `checkIntervalSeconds` (~10 min), for each configured provider (`claude` i
 Providers are evaluated independently. Everything is logged each cycle (`[pacing]` prefix), and
 `--dry-run` logs the decision without executing.
 
+## Chained (self-continuing) tasks
+
+A task with `"chain": true` swaps the fixed prompt for a standing **mission** pursued over many turns.
+The pace/guardrail loop above is unchanged — chaining lives entirely in task execution
+(`runChainTask`) and task selection (`nextDueTask`); no server or loop changes.
+
+Each turn:
+
+1. **Load chain state** from `state.json` → `chains["<id>"]` (`mission`, `nextPrompt`, `journal`,
+   `turn`, `done`), seeding it from `mission` / `seedPrompt` on the first run.
+2. **Build the turn prompt** = `mission` + the running `journal` + this turn's `nextPrompt`, plus the
+   contract to emit a trailing ` ```pacing-next ` JSON block (`{done, next_prompt, journal}`).
+3. **Run `claude` with `cwd` set to the task's `workspace`**, so the model builds the project on disk
+   there. The agent parses the block, saves the narration to `output`, appends to a rolling
+   `{id}-journal.md`, and writes `next_prompt` / `journal` / `turn+1` / `done` back to `chains["<id>"]`.
+   A missing/invalid block fails soft: keep the prior `nextPrompt` and retry next turn.
+4. **Stop** when the model sets `done:true` or `turn >= maxTurns` (default 100) — `nextDueTask` then
+   skips the task. Per-task `cooldownMinutes` and every pace/headroom guardrail still apply, so a chain
+   only advances when you're genuinely under-pacing, one turn per cooldown.
+
+**Confinement — the turn can only touch its own directory, with no network.** Defense in depth, all
+scoped to the workspace so fixed text tasks are unaffected:
+
+- `cwd = workspace` and no `--add-dir`, so Claude Code's file tools are already limited to that dir.
+- The agent writes `<workspace>/.claude/settings.json` (idempotently) enabling Claude Code's OS
+  sandbox with **network denied** (empty `sandbox.network` allow-list), `autoAllowBashIfSandboxed`
+  so bash auto-runs *only* when it can be sandboxed (else it **fails closed**),
+  `permissions.defaultMode: acceptEdits` so in-workspace edits run unattended, and `WebFetch` /
+  `WebSearch` denied. Verified against `claude` 2.1.220's sandbox settings.
+
+The trade-off is deliberate: the mission is bounded to what's buildable offline in one folder (code,
+content, copy, plans), not deploys, signups, or API calls. It still spends the subscription like any
+other pacing task, so the weekly-cap / 5-hour / `extra_spend` guardrails keep it out of overage credits.
+
 ## Files (`agents/pacing/`)
 
 | File | Purpose |
 | --- | --- |
 | `pacing-agent.mjs` | The loop above. Zero runtime deps (Node ≥20 built-ins only), same spirit as [`agents/shared/agent-core.mjs`](../agents/shared/agent-core.mjs). |
 | `config.example.json` | Dashboard endpoint/token, cadence, and the `claude` provider block (caps, margin, cooldown, `run` template). Copy to `config.json`. |
-| `tasks.example.json` | The tasks **you define** (`id`, `provider`, `prompt`, `output`, `cooldownMinutes`). Copy to `tasks.json` and edit. |
+| `tasks.example.json` | The tasks **you define** — fixed (`id`, `provider`, `prompt`, `output`, `cooldownMinutes`) or chained (`"chain": true` with a `mission`; see above). Copy to `tasks.json` and edit. |
 | `com.telemetry.pacing.plist` | launchd unit (`RunAtLoad`/`KeepAlive`), modeled on [`agents/macos/com.telemetry.agent.plist`](../agents/macos/com.telemetry.agent.plist). |
 | `README.md` | Setup, guardrails, task authoring. |
 
