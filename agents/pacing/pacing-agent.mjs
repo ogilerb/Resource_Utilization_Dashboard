@@ -226,6 +226,7 @@ async function runFixedTask(cfg, provider, task) {
 
 const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_WORKSPACE = '{outputDir}/{id}-workspace';
+const DEFAULT_CHAIN_OUTPUT = '{outputDir}/{id}-turn{turn}-{datetime}.md';
 
 // The confinement boundary for a chained task, written into <workDir>/.claude/
 // settings.json. It keeps every turn inside its own directory with no network:
@@ -361,7 +362,7 @@ async function runChainTask(cfg, provider, task, state) {
   const { body, cont, reason } = parseContinuation(stdout);
 
   // Save this turn's narration artifact.
-  const outPath = expandHome(interpolate(task.output, vars));
+  const outPath = expandHome(interpolate(task.output || DEFAULT_CHAIN_OUTPUT, vars));
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, `# ${task.id} — turn ${turn} — ${iso}\n\n${body}`);
 

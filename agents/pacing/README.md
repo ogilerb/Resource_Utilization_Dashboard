@@ -109,8 +109,10 @@ forward — so consecutive "behind pace" runs compound into ongoing progress ins
 - `mission` — the fixed goal, injected verbatim every turn. Edit it anytime; changes take effect next turn.
 - `seedPrompt` — the turn-1 instruction. Each later turn's instruction is written by the previous turn.
 - `maxTurns` — safety cap (default 100). The chain also stops when the model marks the mission `done`.
-- `workspace` — the **only** directory a turn can touch (default `{outputDir}/{id}-workspace`).
-- `output` — per-turn narration artifact. Chained tasks add `{turn}` and `{workDir}` placeholders.
+- `workspace` — optional; the **only** directory a turn can touch. Default `{outputDir}/{id}-workspace`.
+- `output` — optional; per-turn narration artifact. Default `{outputDir}/{id}-turn{turn}-{datetime}.md`.
+  Chained tasks add `{turn}` and `{workDir}` placeholders. `{outputDir}` comes from `config.json`
+  (default `~/pacing-output`), so you never write a literal path — templates are fine.
 
 **How a turn works.** The agent builds the turn's prompt from `mission` + the journal + this turn's
 instruction, runs `claude` with its working directory set to `workspace`, then parses a trailing
