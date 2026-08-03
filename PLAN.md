@@ -1,133 +1,108 @@
-# Telemetry Aggregation Platform — Implementation Plan
+# Telemetry Aggregation Platform — Roadmap
 
-## Objective
+## Current state
 
-Build a centralized telemetry system that aggregates (a) hardware metrics from multiple machines and (b) AI/LLM usage and cost data into a single dashboard. The aggregator runs on an Oracle Cloud server using Node.js/Express, PostgreSQL, and an Angular frontend.
+The core platform is **built and running**. The aggregator runs on the Oracle Cloud server (Node/Express + PostgreSQL + Angular). macOS, Windows, and Oracle agents push CPU/RAM to `compute_metrics`; workers pull Gemini and Anthropic usage into `api_metrics` / `usage_metrics`; browser extensions estimate web-app usage; the dashboard renders resources dynamically with live WebSocket charts and 7-day/month/year history. A pacing agent and a token-gated dashboard (`DASHBOARD_TOKEN`) are also in place.
 
-## Tech Stack
+**For architecture, repo layout, setup, deployment, and acceptance status, see the [README](README.md).** This document is now the forward-looking roadmap only — everything below is not-yet-built work.
 
-- **Backend:** Node.js + Express (REST API + WebSocket server)
-- **Database:** PostgreSQL
-- **Frontend:** Angular (charts via a library of your choice, e.g. ngx-charts or Chart.js)
-- **Agents:** Node.js daemon (macOS), PowerShell/WMI service (Windows), local daemon (Oracle server)
-- **Schedulers:** `launchd` (macOS), Task Scheduler (Windows), `node-cron` (backend pollers)
+## Design constraints for new work
 
-## Repository Layout
+Anything added here must respect the invariants the platform is built on:
 
-```
-telemetry-platform/
-├── server/                 # Express API, WebSocket, cron workers
-│   ├── src/
-│   │   ├── routes/         # /api/ingest, /api/resources, /api/metrics
-│   │   ├── workers/        # gemini-billing.js, anthropic-usage.js
-│   │   ├── ws/             # WebSocket broadcast for live compute metrics
-│   │   ├── db/             # pg pool, migrations
-│   │   └── middleware/     # auth (API key per agent), validation
-│   └── migrations/
-├── agents/
-│   ├── macos/              # Node.js launchd daemon
-│   ├── windows/            # PowerShell script + Task Scheduler XML
-│   └── oracle/             # local host-metrics daemon
-├── dashboard/              # Angular app
-└── docker-compose.yml      # postgres + server for local dev
-```
+- **Dynamic resource model.** A new data source is added by inserting a row via `POST /api/resources` and pointing a collector at the issued API key — no per-resource routes, no hardcoded frontend panels. Ingest resolves the resource from the key. New integrations (Calendar, Antigravity, finance) must plug in this way.
+- **New metric shapes get their own table, not overloaded columns.** `api_metrics` is tokens/cost; `compute_metrics` is CPU/RAM. For a genuinely new shape (time buckets, transactions), follow the migration `002` precedent: widen the `resources.type` CHECK constraint and add a purpose-built table, rather than bending an existing one.
+- **Sensitive data stays behind the gate.** Financial data sits behind the existing `DASHBOARD_TOKEN` dashboard gate; encryption-at-rest is still pending and is a prerequisite for storing balances/transactions (see banking-data-hardening notes).
 
-## Phase 1 — Backend Core
+---
 
-1. Scaffold Express server with TypeScript, `pg` pool, and environment-based config (`.env`).
-2. Create PostgreSQL migrations:
+## UI/UX
 
-```sql
-CREATE TABLE resources (
-  id          SERIAL PRIMARY KEY,
-  name        TEXT NOT NULL,
-  type        TEXT NOT NULL CHECK (type IN ('compute', 'api')),
-  status      TEXT NOT NULL DEFAULT 'active',
-  api_key     TEXT UNIQUE,          -- per-agent auth token
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
+### Rework dashboard UI/UX
+The current dashboard is a flat auto-rendered grid of per-resource cards driven by a generic `ResourceComponent` that switches visualization by `type`. That scaled the build but doesn't scale the *reading* — as resource count and data types grow (compute, AI usage, time, finance), a single undifferentiated grid buries the signal.
 
-CREATE TABLE compute_metrics (
-  id           BIGSERIAL PRIMARY KEY,
-  resource_id  INT REFERENCES resources(id),
-  timestamp    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  cpu_percent  REAL,
-  memory_bytes BIGINT
-);
-CREATE INDEX idx_compute_res_time ON compute_metrics (resource_id, timestamp DESC);
+- **Goals:** a clear information hierarchy (top-level KPI/summary row → grouped sections → per-resource detail), smoother overview↔detail navigation, and one consistent visual system across every chart.
+- **Approach:** group resources by domain (Compute · AI Usage · Time · Finance) instead of one flat list; add a summary strip of headline numbers (current spend, active machines, weekly AI burn); unify chart styling, tooltips, and the date-range selector so every panel behaves identically.
+- **Theming:** commit to consistent light **and** dark support end-to-end (the roadmap adds more surfaces, so this needs to be systematic, not per-component).
+- **Note:** run the design/color work through the `dataviz` guidance when building the new chart system so the palette and mark styles read as one system.
 
-CREATE TABLE api_metrics (
-  id           BIGSERIAL PRIMARY KEY,
-  resource_id  INT REFERENCES resources(id),
-  timestamp    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  tokens_in    BIGINT,
-  tokens_out   BIGINT,
-  cost         NUMERIC(12,6)
-);
-CREATE INDEX idx_api_res_time ON api_metrics (resource_id, timestamp DESC);
-```
+---
 
-3. Implement endpoints:
-   - `POST /api/ingest/compute` — agents push `{ cpu_percent, memory_bytes }`; authenticated via per-resource API key header; resource resolved from the key.
-   - `POST /api/resources` / `GET /api/resources` — register and list monitored entities (dynamic registration, no schema changes needed).
-   - `GET /api/metrics/compute?resource_id=&from=&to=` — historical time-series.
-   - `GET /api/metrics/api?resource_id=&from=&to=` — token/cost history.
-4. WebSocket server: on each compute ingest, broadcast the datapoint to subscribed dashboard clients (channel per resource).
-5. Middleware: API-key auth for ingest routes, payload validation (zod or similar), rate limiting.
+## New data sources & integrations
 
-## Phase 2 — Collection Agents (Push Model)
+### Google Calendar time analytics
+Pull events from Google Calendar and surface how time is actually spent (hours per category/project, meeting load, focus vs. fragmented time).
 
-1. **macOS (MacBook Air):** Node.js daemon polling `sysctl`/`top` every N seconds for CPU and RAM; POSTs JSON over HTTPS. Include a `launchd` plist (`~/Library/LaunchAgents/`) with `KeepAlive` and an install script.
-2. **Windows:** PowerShell script using WMI/CIM (`Get-CimInstance Win32_Processor`, `Win32_OperatingSystem`) to gather CPU/RAM; POSTs via `Invoke-RestMethod`. Ship a Task Scheduler definition (or run as a scheduled loop) plus an install script.
-3. **Oracle server:** Local Node.js daemon reading `/proc` (or `os` module) for its own host metrics; run under systemd.
-4. All agents: configurable interval, endpoint URL, and API key via config file/env; buffer-and-retry on network failure so datapoints aren't lost.
+- **Auth:** reuse the existing Google API/OAuth credentials from the email-labeling and Garmin-watch projects — those are already an approved Google Cloud project with user consent, so no new project or consent screen is needed. Add the `calendar.readonly` scope if it isn't already granted.
+- **Collector:** a scheduled `node-cron` worker (`server/src/workers/calendar-time.ts`) that pulls events on an interval and aggregates them daily. Register Calendar as a resource so it flows through the dynamic model.
+- **Categorization:** map events → categories via calendar name, event color, and keyword rules (config-driven so rules can change without code edits).
+- **Data model:** this is a new shape (time buckets, not tokens/cost), so add a `time_metrics` table (`resource_id`, `day`, `category`, `minutes`, `event_count`) and widen the `resources.type` CHECK to include `calendar`/`time`. Upsert by `(resource, day, category)` for idempotent re-runs.
+- **Dashboard:** stacked area/bar of hours-by-category over time, a meeting-load trend, and a focus-time metric derived from gaps between events.
+- **Dependency:** Google Calendar connector/authorization must be in place before the worker can pull.
 
-## Phase 3 — API Usage Workers (Pull Model)
+### Antigravity usage
+Connect and measure Antigravity usage and ingest it through the dynamic-resource model as an `api`-type resource.
 
-1. **Gemini API:** `node-cron` job polling the Google Cloud Billing / usage export daily, aggregating token usage and cost per day, writing to `api_metrics`.
-2. **Claude:** Backend worker querying the Anthropic Admin/Usage API for workspace usage and cost, on a schedule. Store tokens in/out and cost.
-3. **Gemini Web App (no official usage API):** Implement one of two workarounds behind a common interface:
-   - Option A: HTTP proxy on the Oracle server that the browser routes through, counting request/response payload sizes for the Gemini domain.
-   - Option B: A browser extension logging prompt/response lengths and POSTing estimates to `/api/ingest/api`.
-   Build Option B first (simpler, no TLS interception); design the ingest endpoint so either source works.
-4. Idempotency: workers should upsert by (resource, day) so re-runs don't duplicate rows.
+- **Open question first:** determine how Antigravity exposes usage — official API/usage export vs. none. If none, fall back to the same pattern already used for the Gemini web app: a local log/estimator or a proxy/extension that counts request/response activity.
+- **Ingest:** whichever source, POST estimates to the existing `/api/ingest/api` endpoint so no backend shape changes are needed.
 
-## Phase 4 — Angular Dashboard
+### RAM analytics
+`compute_metrics.memory_bytes` is already collected, so this is primarily a visualization/derivation effort rather than new collection.
 
-1. Scaffold Angular app with a service layer for REST + WebSocket.
-2. On load, fetch `GET /api/resources` and dynamically render one card/panel per resource — no hardcoded resource list.
-3. Generic `ResourceComponent` that switches its visualization by `type`:
-   - `compute` → live line chart (CPU %, memory) fed by WebSocket, with a historical range selector backed by REST.
-   - `api` → daily bar/area chart of tokens and cost via REST.
-4. Add a "Register Resource" form that POSTs to `/api/resources` and returns the generated API key for the new agent.
-5. Basic layout: overview grid, per-resource detail view, date-range filters.
+- **Build:** RAM-specific charts alongside the existing CPU views — per-machine memory trend and a combined cross-machine view.
+- **Gap to close for utilization %:** raw bytes alone can't show "% of RAM used." Have agents also report total physical memory (once, as resource metadata, or as a second column) so the dashboard can plot utilization percentage, not just absolute bytes.
 
-## Phase 5 — Deployment & Ops
+---
 
-1. `docker-compose.yml` for local dev (Postgres + server); production deploy on the Oracle server via systemd or Docker.
-2. Reverse proxy (nginx/Caddy) with TLS in front of Express; WebSocket upgrade support.
-3. Retention job: downsample or purge `compute_metrics` older than a configurable window (e.g. keep raw 7 days, hourly averages 90 days).
-4. Health endpoint (`/healthz`) and agent "last seen" tracking so the dashboard can flag offline resources.
+## Optimization
 
-## Scalability Requirements
+### Utilize spare Gemini quota & compute
+Put unused Gemini allowance and idle compute to productive use instead of leaving it on the table.
 
-- Adding a new resource must require only: (1) inserting a row via `POST /api/resources`, (2) deploying the collection script with the issued API key. No backend code changes, no schema changes, no frontend changes.
-- Ingest routes resolve resources dynamically from the API key — no per-resource route definitions.
+- **Candidate workloads:** the weekly/monthly review bot below, Calendar event categorization, and financial-statement summarization are all batchy, latency-tolerant jobs — good fits for spare capacity.
+- **Mechanism:** route these background jobs through Gemini when quota is available, and schedule them on the Oracle server during idle windows. Needs a lightweight way to sense remaining quota/idle capacity before dispatching.
+- **Cross-links:** this is the execution substrate for the review bot and can offload the Calendar/finance analysis jobs.
 
-## Acceptance Criteria
+---
 
-- [ ] All three machines stream CPU/RAM data visible live on the dashboard.
-- [ ] Gemini API and Claude usage/cost appear as daily aggregates.
-- [ ] Registering a new resource through the UI produces a working ingest key and an auto-rendered dashboard panel.
-- [ ] Agents survive reboots (launchd/Task Scheduler/systemd) and retry on network failure.
-- [ ] Historical queries by date range work for both metric types.
-- [ ] Metrics tables are indexed on `(resource_id, timestamp)`; retention job runs on schedule.
+## Finance
 
-## Suggested Build Order for Claude Code
+### Bank connections, budgeting & money analytics
+Connect bank accounts and add budgeting, spending analytics, and financial-statement generation.
 
-1. Phase 1 (backend + DB) with tests for ingest and query endpoints.
-2. Oracle server agent (fastest to verify end-to-end locally).
-3. Angular dashboard skeleton with live WebSocket chart.
-4. macOS and Windows agents.
-5. API usage workers (Gemini billing, Anthropic usage), then the Gemini web-app estimator.
-6. Deployment hardening and retention.
+- **Security prerequisites (blockers):** this is the most sensitive data in the system. It sits behind the existing `DASHBOARD_TOKEN` gate, but **encryption-at-rest must land first**, and the balances feature is still pending (see banking-data-hardening notes). Do not store transactions/balances before encryption-at-rest is in place.
+- **Connection:** an aggregation provider (e.g. Plaid) or a comparable method to pull accounts, balances, and transactions.
+- **Data model:** new tables for `accounts`, `transactions`, and `budgets` (category, period, limit) — a genuinely new shape, so add tables rather than reusing metrics tables, and widen the resource `type` if accounts are modeled as resources.
+- **Analytics:** spending by category, cash flow in/out, net-worth-over-time, budget vs. actual.
+- **Statement generation:** monthly income statement and balance sheet generated from the transaction/balance history; the summarization pass can run through spare Gemini/compute.
+
+---
+
+## Automation & reporting
+
+### Local review bot on the Oracle server
+A scheduled agent, running locally on the Oracle server, that reviews all collected data and writes a summary report.
+
+- **Cadence:** weekly and monthly runs.
+- **Content:** trends, anomalies, and cost/usage highlights across compute, AI usage, time, and (once available) finance.
+- **Compute:** leverage spare Gemini/compute per the optimization item; consider whether the existing pacing-agent/scheduling infrastructure can host it rather than standing up a new scheduler.
+- **Output:** a Markdown report — decide delivery (surfaced on the dashboard, emailed, or both).
+
+---
+
+## Docs
+
+### Update README
+Bring the README in line with the current architecture and the features above — including the parts already built but under-documented (pacing agent, `analytics` route, the `DASHBOARD_TOKEN` dashboard gate, and the full extension set) plus each roadmap feature as it ships.
+
+---
+
+## Suggested order
+
+1. **UI/UX rework** — the foundation the new surfaces render into; doing it first avoids retrofitting every new panel.
+2. **RAM analytics** — cheapest win; data already exists, only needs the utilization-% reporting gap closed.
+3. **Google Calendar time analytics** — high value, and the OAuth credentials already exist (pending connector authorization).
+4. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
+5. **Antigravity usage** — gated on the usage-exposure investigation.
+6. **Finance** — highest value but blocked on encryption-at-rest; sequence it after the security prerequisite lands.
+7. **README** — update continuously as each item ships.
