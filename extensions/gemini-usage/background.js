@@ -17,6 +17,13 @@ const ALARM = 'poll-gemini-usage';
 const PERIOD_MINUTES = 10;
 const FRAME_RULE_ID = 1;
 
+// Re-push even when the gauge values are unchanged if the last push is older
+// than this, so the dashboard's "last seen" / online badge stays fresh during
+// flat stretches. MUST stay below the server's offline window
+// (resource.interval_seconds * OFFLINE_INTERVAL_MULTIPLIER) or the resource
+// will still flip to "offline" between heartbeats.
+const HEARTBEAT_MS = 15 * 60 * 1000;
+
 // Google refuses to be framed; strip the framing headers on the sub-frame
 // request so the content script's hidden iframe can render /usage same-origin.
 const rules = [
@@ -99,6 +106,19 @@ async function scrapeFromAnyTab(tabs) {
   throw new Error(lastError);
 }
 
+/**
+ * Stable fingerprint of a reading. We dedup on the parsed gauge values — not
+ * the scraped freshness label, which can go static (e.g. a redesigned /usage
+ * page or a genuinely idle account) and, as the sole gate, silently suppress
+ * every push. Sorted so gauge ordering never changes the signature.
+ */
+function sampleSignature(samples) {
+  return samples
+    .map((s) => `${s.window}:${s.utilization}:${s.resets_at ?? ''}`)
+    .sort()
+    .join('|');
+}
+
 async function poll() {
   const cfg = await chrome.storage.sync.get(['endpoint', 'apiKey']);
   if (!cfg.endpoint || !cfg.apiKey) {
@@ -119,11 +139,14 @@ async function poll() {
     throw new Error('usage page rendered but no gauges parsed — selectors may have changed');
   }
 
-  // The reading only changes when the backend re-aggregates. Same freshness
-  // label means the same reading, so skip the push rather than storing a
-  // duplicate row.
-  const { lastFreshness } = await chrome.storage.local.get('lastFreshness');
-  if (freshness && freshness === lastFreshness) {
+  // Skip only a genuine duplicate: the parsed gauge values are identical to the
+  // last push AND that push is still recent. Once it ages past HEARTBEAT_MS we
+  // re-push the unchanged reading so "last seen" stays live and the resource
+  // doesn't read offline during a flat stretch.
+  const signature = sampleSignature(samples);
+  const { lastSignature, lastPush } = await chrome.storage.local.get(['lastSignature', 'lastPush']);
+  const ageMs = lastPush ? Date.now() - Date.parse(lastPush) : Infinity;
+  if (signature === lastSignature && ageMs < HEARTBEAT_MS) {
     await setStatus({ error: null, lastSkipped: 'unchanged since last poll' });
     return 0;
   }
@@ -136,6 +159,7 @@ async function poll() {
   if (!res.ok) throw new Error(`telemetry ingest ${res.status}`);
 
   await setStatus({
+    lastSignature: signature,
     lastFreshness: freshness ?? null,
     lastPush: new Date().toISOString(),
     lastCount: samples.length,
