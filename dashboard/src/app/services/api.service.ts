@@ -11,6 +11,7 @@ import {
   RegisterResponse,
   Resource,
   ResourceType,
+  UsageBucketPoint,
   UsagePoint,
   WeeklyUsageResource,
 } from '../models';
@@ -65,6 +66,21 @@ export class ApiService {
     if (to) params = params.set('to', to);
     return this.http
       .get<{ points: UsagePoint[] }>(`${this.base}/api/metrics/usage`, { params })
+      .pipe(map((r) => r.points));
+  }
+
+  // Per-day or per-week averaged usage-gauge series for the month/year views.
+  usageBucketed(
+    resourceId: number,
+    bucket: 'day' | 'week',
+    from?: string,
+    to?: string
+  ): Observable<UsageBucketPoint[]> {
+    let params = new HttpParams().set('resource_id', resourceId).set('bucket', bucket);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http
+      .get<{ points: UsageBucketPoint[] }>(`${this.base}/api/metrics/usage/bucketed`, { params })
       .pipe(map((r) => r.points));
   }
 

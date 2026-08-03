@@ -44,6 +44,16 @@ export interface UsagePoint {
   raw: Record<string, unknown> | null;
 }
 
+// Server-aggregated usage point (per-day or per-week average) used for the wide
+// month/year usage views where raw ~15 min gauge samples are too dense to read.
+export interface UsageBucketPoint {
+  timestamp: string;
+  window_kind: string;
+  utilization_avg: number;
+  utilization_max: number;
+  sample_count: number;
+}
+
 export interface RegisterResponse {
   resource: Resource;
   api_key: string;

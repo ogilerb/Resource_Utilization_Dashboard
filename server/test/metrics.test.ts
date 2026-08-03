@@ -130,6 +130,59 @@ describe('resources + metrics', { skip: hasDb ? false : 'no test Postgres reacha
     assert.equal(res.status, 400);
   });
 
+  it('averages raw usage samples into per-day and per-week buckets', async () => {
+    const u = await (
+      await afetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'usage-mac', type: 'usage', interval_seconds: 900 }),
+      })
+    ).json();
+    const usageId = u.resource.id;
+
+    // seven_day samples: two on Jul 1 (avg 30, max 40), two on Jul 2 (avg 55).
+    // A five_hour sample on Jul 1 must stay in its own window, not the seven_day
+    // series. All four seven_day samples fall in the same week (Wed/Thu).
+    const rows: [string, number, string][] = [
+      ['seven_day', 20, '2026-07-01T02:00:00Z'],
+      ['seven_day', 40, '2026-07-01T20:00:00Z'],
+      ['seven_day', 50, '2026-07-02T05:00:00Z'],
+      ['seven_day', 60, '2026-07-02T21:00:00Z'],
+      ['five_hour', 90, '2026-07-01T02:00:00Z'],
+    ];
+    for (const [kind, util, ts] of rows) {
+      await pool.query(
+        `INSERT INTO usage_metrics (resource_id, window_kind, utilization, timestamp)
+         VALUES ($1, $2, $3, $4)`,
+        [usageId, kind, util, ts]
+      );
+    }
+
+    const dayUrl = `${ctx.baseUrl}/api/metrics/usage/bucketed?resource_id=${usageId}&bucket=day&from=2026-07-01T00:00:00Z&to=2026-07-03T00:00:00Z`;
+    const day = await (await afetch(dayUrl)).json();
+    const dSeven = day.points.filter((p: any) => p.window_kind === 'seven_day');
+    assert.equal(dSeven.length, 2);
+    assert.equal(new Date(dSeven[0].timestamp).toISOString(), '2026-07-01T00:00:00.000Z');
+    assert.equal(dSeven[0].utilization_avg, 30);
+    assert.equal(dSeven[0].utilization_max, 40);
+    assert.equal(dSeven[0].sample_count, 2);
+    assert.equal(dSeven[1].utilization_avg, 55);
+
+    const weekUrl = `${ctx.baseUrl}/api/metrics/usage/bucketed?resource_id=${usageId}&bucket=week&from=2026-06-29T00:00:00Z&to=2026-07-06T00:00:00Z`;
+    const week = await (await afetch(weekUrl)).json();
+    const wSeven = week.points.filter((p: any) => p.window_kind === 'seven_day');
+    assert.equal(wSeven.length, 1);
+    assert.equal(wSeven[0].utilization_avg, 42.5);
+    assert.equal(wSeven[0].sample_count, 4);
+  });
+
+  it('rejects a usage bucketed request with an invalid bucket', async () => {
+    const res = await afetch(
+      `${ctx.baseUrl}/api/metrics/usage/bucketed?resource_id=${computeId}&bucket=hour`
+    );
+    assert.equal(res.status, 400);
+  });
+
   it('validates query params', async () => {
     const res = await afetch(`${ctx.baseUrl}/api/metrics/compute?resource_id=notanumber`);
     assert.equal(res.status, 400);

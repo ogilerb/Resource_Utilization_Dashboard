@@ -32,6 +32,17 @@ const KNOWN_LABELS: Record<string, string> = {
 // Display order: the weekly gauge is the headline.
 const KIND_ORDER = ['seven_day', 'five_hour', 'extra_spend'];
 
+type RangeKey = 'week' | 'month' | 'year';
+
+// Chart time ranges. `bucket` set → the server averages the sparse ~15 min
+// gauge samples into per-day (month) or per-week (year) points so the wide
+// views stay readable; the 7d view plots the raw samples directly.
+const RANGES: { key: RangeKey; label: string; ms: number; bucket?: 'day' | 'week' }[] = [
+  { key: 'week', label: '7d', ms: 7 * 86_400_000 },
+  { key: 'month', label: 'Month', ms: 30 * 86_400_000, bucket: 'day' },
+  { key: 'year', label: 'Year', ms: 365 * 86_400_000, bucket: 'week' },
+];
+
 @Component({
   selector: 'app-usage-panel',
   standalone: true,
@@ -66,7 +77,12 @@ const KIND_ORDER = ['seven_day', 'five_hour', 'extra_spend'];
     </div>
 
     @if (!compact) {
-      <h4 class="muted" style="margin:1.25rem 0 0.25rem">Weekly utilization trend</h4>
+      <div class="range-bar" style="margin-top:1.25rem">
+        @for (r of ranges; track r.key) {
+          <button [class.active]="r.key === rangeKey" (click)="setRange(r.key)">{{ r.label }}</button>
+        }
+      </div>
+      <h4 class="muted" style="margin:0 0 0.25rem">{{ chartTitle }}</h4>
     }
     <div class="chart-wrap" [class.compact]="compact" [style.height.px]="compact ? 120 : 200">
       <canvas #canvas></canvas>
@@ -85,15 +101,33 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
 
   gauges: Gauge[] = [];
   weekElapsedPct: number | null = null;
+  ranges = RANGES;
+  rangeKey: RangeKey = 'week';
   private points: UsagePoint[] = [];
+  // The seven_day utilization series currently plotted; `max` carries the
+  // per-bucket peak for the tooltip in the month/year (bucketed) views.
+  private chartData: { x: number; y: number | null; max?: number }[] = [];
 
   // In compact mode only the headline weekly gauge is shown.
   get visibleGauges(): Gauge[] {
     return this.compact ? this.gauges.filter((g) => g.window_kind === 'seven_day') : this.gauges;
   }
 
+  // Aggregation bucket for the current range (undefined = raw 7d samples).
+  get chartBucket(): 'day' | 'week' | undefined {
+    return this.ranges.find((r) => r.key === this.rangeKey)?.bucket;
+  }
+
+  get chartTitle(): string {
+    if (this.rangeKey === 'month') return 'Utilization by day — last 30 days';
+    if (this.rangeKey === 'year') return 'Utilization by week — last 12 months';
+    return 'Weekly utilization trend — last 7 days';
+  }
+
   ngOnInit(): void {
-    // Refresh every minute; the collector samples every ~15 min.
+    // Refresh every minute; the collector samples every ~15 min. This poll keeps
+    // the gauges (always the latest 7 days of raw samples) live regardless of the
+    // chart's selected range.
     this.sub = interval(60_000)
       .pipe(
         startWith(0),
@@ -105,18 +139,49 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
       .subscribe((points) => {
         this.points = points;
         this.computeGauges();
-        this.render();
+        this.loadChart();
       });
   }
 
   ngAfterViewInit(): void {
     this.buildChart();
-    this.render();
+    this.loadChart();
   }
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
     this.chart?.destroy();
+  }
+
+  setRange(key: RangeKey): void {
+    if (key === this.rangeKey) return;
+    this.rangeKey = key;
+    this.loadChart();
+  }
+
+  // Populate chartData for the selected range, then render. The 7d view reuses
+  // the raw samples already fetched for the gauges; the month/year views ask the
+  // server for per-day / per-week averages so wide ranges stay light + readable.
+  private loadChart(): void {
+    const range = this.ranges.find((r) => r.key === this.rangeKey)!;
+    if (!range.bucket) {
+      this.chartData = this.points
+        .filter((p) => p.window_kind === 'seven_day')
+        .map((p) => ({ x: new Date(p.timestamp).getTime(), y: Number(p.utilization) }));
+      this.render();
+      return;
+    }
+    const from = new Date(Date.now() - range.ms).toISOString();
+    this.api.usageBucketed(this.resource.id, range.bucket, from).subscribe((points) => {
+      this.chartData = points
+        .filter((p) => p.window_kind === 'seven_day')
+        .map((p) => ({
+          x: new Date(p.timestamp).getTime(),
+          y: p.utilization_avg,
+          max: p.utilization_max,
+        }));
+      this.render();
+    });
   }
 
   label(kind: string): string {
@@ -202,8 +267,14 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
               color: '#93a1b8',
               maxRotation: 0,
               autoSkipPadding: 20,
-              callback: (v) =>
-                new Date(Number(v)).toLocaleDateString([], { weekday: 'short', hour: '2-digit' }),
+              callback: (v) => {
+                const d = new Date(Number(v));
+                // Day/week buckets span calendar dates; show the date instead of
+                // a meaningless time. The 7d view keeps weekday + hour.
+                return this.chartBucket
+                  ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  : d.toLocaleDateString([], { weekday: 'short', hour: '2-digit' });
+              },
             },
             grid: { color: '#22304a' },
           },
@@ -218,9 +289,22 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
           legend: { display: false },
           tooltip: {
             callbacks: {
-              title: (items) =>
-                items.length ? new Date(Number(items[0].parsed.x)).toLocaleString() : '',
-              label: (ctx) => `Weekly: ${ctx.parsed.y?.toFixed(1)}%`,
+              title: (items) => {
+                if (!items.length) return '';
+                const d = new Date(Number(items[0].parsed.x));
+                if (this.chartBucket === 'week')
+                  return 'Week of ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                if (this.chartBucket === 'day')
+                  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                return d.toLocaleString();
+              },
+              label: (ctx) => {
+                const max = (ctx.raw as { max?: number })?.max;
+                // Bucketed views plot the average; surface the peak alongside it.
+                return this.chartBucket && max != null
+                  ? `Avg ${ctx.parsed.y?.toFixed(1)}% · peak ${max.toFixed(0)}%`
+                  : `Weekly: ${ctx.parsed.y?.toFixed(1)}%`;
+              },
             },
           },
         },
@@ -231,9 +315,10 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private render(): void {
     if (!this.chart) return;
-    this.chart.data.datasets[0].data = this.points
-      .filter((p) => p.window_kind === 'seven_day')
-      .map((p) => ({ x: new Date(p.timestamp).getTime(), y: Number(p.utilization) })) as any;
+    // Bucketed views are sparse (≤31 days / ≤52 weeks), so show markers to make
+    // each point legible; the dense raw 7d series stays a smooth line.
+    (this.chart.data.datasets[0] as any).pointRadius = this.chartBucket ? 3 : 0;
+    this.chart.data.datasets[0].data = this.chartData as any;
     this.chart.update('none');
   }
 }

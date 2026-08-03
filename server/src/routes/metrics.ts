@@ -18,6 +18,12 @@ const bucketedSchema = rangeSchema.extend({
   bucket: z.enum(['hour', 'day']),
 });
 
+// Usage gauges are sampled sparsely (~15 min), so their wide views bucket by
+// day (month view) or week (year view) rather than hour/day.
+const usageBucketedSchema = rangeSchema.extend({
+  bucket: z.enum(['day', 'week']),
+});
+
 // GET /api/metrics/compute?resource_id=&from=&to= — raw compute time-series.
 // Rows are returned ascending by time so the chart can render them directly and
 // detect gaps (sleep windows) between consecutive samples.
@@ -106,6 +112,36 @@ metricsRouter.get('/usage', validateQuery(rangeSchema), async (req, res, next) =
         ORDER BY timestamp ASC
         LIMIT $4`,
       [q.resource_id, q.from ?? null, q.to ?? null, q.limit]
+    );
+    res.json({ resource_id: q.resource_id, points: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/metrics/usage/bucketed?resource_id=&from=&to=&bucket=day|week
+// On-the-fly downsample of raw usage_metrics: averages every gauge sample in
+// each day/week into one point, per window_kind. Powers the month (per-day) and
+// year (per-week) usage views, where plotting every raw ~15 min sample over such
+// a wide range is unreadable. utilization_max preserves the peak the gauge
+// reached within the bucket for the tooltip.
+metricsRouter.get('/usage/bucketed', validateQuery(usageBucketedSchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof usageBucketedSchema>>(req);
+    const { rows } = await query(
+      `SELECT date_trunc($5::text, timestamp) AS timestamp,
+              window_kind,
+              avg(utilization)::real AS utilization_avg,
+              max(utilization)::real AS utilization_max,
+              count(*)::int          AS sample_count
+         FROM usage_metrics
+        WHERE resource_id = $1
+          AND ($2::timestamptz IS NULL OR timestamp >= $2)
+          AND ($3::timestamptz IS NULL OR timestamp <= $3)
+        GROUP BY 1, window_kind
+        ORDER BY 1 ASC
+        LIMIT $4`,
+      [q.resource_id, q.from ?? null, q.to ?? null, q.limit, q.bucket]
     );
     res.json({ resource_id: q.resource_id, points: rows });
   } catch (err) {
