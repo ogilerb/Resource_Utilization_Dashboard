@@ -76,7 +76,7 @@ async function loadConfig() {
 
   cfg.checkIntervalSeconds = Number(cfg.checkIntervalSeconds) || 600;
   cfg.outputDir = cfg.outputDir || '~/pacing-output';
-  cfg.stateFile = cfg.stateFile || './state.json';
+  cfg.stateFile = expandHome(cfg.stateFile || './state.json');
   cfg.dryRun = cfg.dryRun || process.argv.includes('--dry-run');
 
   // Tasks live in a separate file (tasksFile) or inline (tasks).
