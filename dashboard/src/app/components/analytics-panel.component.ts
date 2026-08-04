@@ -1,4 +1,4 @@
-import { Component, ElementRef, Input, OnDestroy, ViewChild, inject } from '@angular/core';
+import { Component, ElementRef, Input, OnDestroy, OnInit, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
 import { AnalyticsResource, WeeklyUsageResource } from '../models';
@@ -24,60 +24,54 @@ const SERIES_COLORS = [
 ];
 
 /**
- * Week-over-week / month-over-month summary with two views:
- *  - Table: per-resource current value + WoW/MoM deltas (fed by the overview,
- *    no extra request).
- *  - Graph: each resource's weekly usage % as its own line over time (compute
- *    CPU %, subscription utilization %), fetched lazily when first opened.
+ * The dashboard's headline analytics, shown as the main column:
+ *  - Graph (top): each resource's weekly usage % as its own line over time
+ *    (compute CPU %, subscription utilization %), loaded on init.
+ *  - Table (below): per-resource current value + WoW/MoM deltas, fed by the
+ *    overview so it needs no extra request.
  */
 @Component({
   selector: 'app-analytics-panel',
   standalone: true,
   imports: [CommonModule, DeltaBadgeComponent],
   template: `
-    @if (analytics.length) {
-      <div class="card analytics">
-        <div class="analytics-head">
-          <h3 style="margin:0">Performance vs. previous period</h3>
-          <div class="view-toggle">
-            <button [class.active]="view === 'table'" (click)="setView('table')">Table</button>
-            <button [class.active]="view === 'graph'" (click)="setView('graph')">Graph</button>
-          </div>
-        </div>
-
-        @if (view === 'table') {
-          <p class="muted" style="margin:0 0 0.75rem">
-            rolling 7-day &amp; 30-day windows · ▼ = down vs. before
-          </p>
-          <div class="analytics-grid">
-            <div class="analytics-row head">
-              <span>Resource</span><span>Metric</span><span>Current</span><span>WoW</span><span>MoM</span>
-            </div>
-            @for (a of analytics; track a.resource_id) {
-              <div class="analytics-row">
-                <span class="name">{{ names[a.resource_id] || '#' + a.resource_id }}</span>
-                <span class="muted">{{ metricLabel(a.metric) }}</span>
-                <span class="value">{{ fmtMetric(a.metric, a.week.current) }}</span>
-                <span><app-delta-badge [delta]="a.week" label="wk" tooltip="vs previous 7 days" /></span>
-                <span><app-delta-badge [delta]="a.month" label="mo" tooltip="vs previous 30 days" /></span>
-              </div>
-            }
-          </div>
-        } @else {
-          <p class="muted" style="margin:0 0 0.75rem">
-            Weekly average usage % per resource · compute CPU &amp; subscription utilization
-          </p>
-          @if (linesLoaded && lines.length === 0) {
-            <p class="muted">No percentage-based usage yet (compute or subscription resources).</p>
-          } @else {
-            <div class="chart-wrap" style="height:260px"><canvas #canvas></canvas></div>
-          }
-        }
+    <div class="card analytics">
+      <div class="analytics-head">
+        <h3 style="margin:0">Usage trends</h3>
+        <span class="muted">weekly average usage % · every percentage-based resource</span>
       </div>
-    }
+
+      @if (linesLoaded && lines.length === 0) {
+        <p class="muted">No percentage-based usage yet (compute or subscription resources).</p>
+      } @else {
+        <div class="chart-wrap main-chart"><canvas #canvas></canvas></div>
+      }
+
+      @if (analytics.length) {
+        <hr class="analytics-divider" />
+        <h4 class="analytics-subhead">Performance vs. previous period</h4>
+        <p class="muted" style="margin:0 0 0.75rem">
+          rolling 7-day &amp; 30-day windows · ▲ green = using more than before
+        </p>
+        <div class="analytics-grid">
+          <div class="analytics-row head">
+            <span>Resource</span><span>Metric</span><span>Current</span><span>WoW</span><span>MoM</span>
+          </div>
+          @for (a of analytics; track a.resource_id) {
+            <div class="analytics-row">
+              <span class="name">{{ names[a.resource_id] || '#' + a.resource_id }}</span>
+              <span class="muted">{{ metricLabel(a.metric) }}</span>
+              <span class="value">{{ fmtMetric(a.metric, a.week.current) }}</span>
+              <span><app-delta-badge [delta]="a.week" label="wk" tooltip="vs previous 7 days" /></span>
+              <span><app-delta-badge [delta]="a.month" label="mo" tooltip="vs previous 30 days" /></span>
+            </div>
+          }
+        </div>
+      }
+    </div>
   `,
 })
-export class AnalyticsPanelComponent implements OnDestroy {
+export class AnalyticsPanelComponent implements OnInit, OnDestroy {
   @Input() analytics: AnalyticsResource[] = [];
   @Input() names: Record<number, string> = {};
 
@@ -85,12 +79,11 @@ export class AnalyticsPanelComponent implements OnDestroy {
   private chart?: Chart;
   private canvasRef?: ElementRef<HTMLCanvasElement>;
 
-  view: 'table' | 'graph' = 'table';
   lines: WeeklyUsageResource[] = [];
   linesLoaded = false;
 
-  // The canvas only exists in graph view (behind @if); build the chart when it
-  // appears and tear it down when it's removed.
+  // The canvas is absent only in the empty state (behind @if); build the chart
+  // when it appears and tear it down when it's removed.
   @ViewChild('canvas') set canvas(ref: ElementRef<HTMLCanvasElement> | undefined) {
     this.canvasRef = ref;
     if (ref) {
@@ -102,13 +95,12 @@ export class AnalyticsPanelComponent implements OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
-    this.chart?.destroy();
+  ngOnInit(): void {
+    this.loadLines();
   }
 
-  setView(view: 'table' | 'graph'): void {
-    this.view = view;
-    if (view === 'graph') this.loadLines();
+  ngOnDestroy(): void {
+    this.chart?.destroy();
   }
 
   metricLabel(metric: string): string {

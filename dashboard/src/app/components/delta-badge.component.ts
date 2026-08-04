@@ -3,10 +3,10 @@ import { CommonModule } from '@angular/common';
 import { PeriodDelta } from '../models';
 
 /**
- * Compact period-over-period delta indicator (e.g. "▼12% wk").
- * Coloring convention: decrease = green, increase = red — reads as "improved"
- * for CPU/cost. Flip the .down/.up class assignment below if a metric's
- * "better" direction is the opposite (e.g. usage utilization).
+ * Compact period-over-period delta indicator (e.g. "▲12% wk").
+ * Coloring convention (see styles.css .delta.up/.down): increase = green,
+ * decrease = red — this is a utilization dashboard, so using MORE of a resource
+ * than the previous period reads as "good".
  */
 @Component({
   selector: 'app-delta-badge',

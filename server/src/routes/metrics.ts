@@ -125,6 +125,13 @@ metricsRouter.get('/usage', validateQuery(rangeSchema), async (req, res, next) =
 // year (per-week) usage views, where plotting every raw ~15 min sample over such
 // a wide range is unreadable. utilization_max preserves the peak the gauge
 // reached within the bucket for the tooltip.
+//
+// pace_avg/pace_max track how close usage is to keeping up with an even weekly
+// pace (100% = exactly on track). Per sample, pace = utilization / fraction of
+// the week elapsed at that sample (from resets_at), so it stays flat across the
+// weekly reset instead of sawtoothing back to 0 like raw utilization. Only
+// meaningful for the resetting seven_day window; NULL otherwise, and NULL in the
+// first ~5% of a week where the ratio is too noisy. avg()/max() ignore the NULLs.
 metricsRouter.get('/usage/bucketed', validateQuery(usageBucketedSchema), async (req, res, next) => {
   try {
     const q = getValidatedQuery<z.infer<typeof usageBucketedSchema>>(req);
@@ -133,11 +140,22 @@ metricsRouter.get('/usage/bucketed', validateQuery(usageBucketedSchema), async (
               window_kind,
               avg(utilization)::real AS utilization_avg,
               max(utilization)::real AS utilization_max,
+              avg(pace)::real        AS pace_avg,
+              max(pace)::real        AS pace_max,
               count(*)::int          AS sample_count
-         FROM usage_metrics
-        WHERE resource_id = $1
-          AND ($2::timestamptz IS NULL OR timestamp >= $2)
-          AND ($3::timestamptz IS NULL OR timestamp <= $3)
+         FROM (
+           SELECT timestamp, window_kind, utilization,
+                  CASE
+                    WHEN window_kind = 'seven_day' AND resets_at IS NOT NULL
+                     AND extract(epoch FROM (timestamp - (resets_at - interval '7 days'))) / 604800.0 > 0.05
+                    THEN utilization
+                       / LEAST(1.0, extract(epoch FROM (timestamp - (resets_at - interval '7 days'))) / 604800.0)
+                  END AS pace
+             FROM usage_metrics
+            WHERE resource_id = $1
+              AND ($2::timestamptz IS NULL OR timestamp >= $2)
+              AND ($3::timestamptz IS NULL OR timestamp <= $3)
+         ) s
         GROUP BY 1, window_kind
         ORDER BY 1 ASC
         LIMIT $4`,

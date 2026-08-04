@@ -11,7 +11,7 @@ import {
 import { Subscription, interval, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { LayoutService } from '../services/layout.service';
-import { AnalyticsResource, CardSpan, Resource } from '../models';
+import { AnalyticsResource, Resource } from '../models';
 import { relativeTime } from '../util';
 import { ComputeChartComponent } from './compute-chart.component';
 import { ApiChartComponent } from './api-chart.component';
@@ -35,93 +35,87 @@ import { DeltaBadgeComponent } from './delta-badge.component';
     DeltaBadgeComponent,
   ],
   template: `
-    <div class="toolbar">
-      <h2 style="margin:0">Resources</h2>
-      <div class="toolbar-actions">
-        <button class="secondary" (click)="editMode = !editMode">
-          {{ editMode ? 'Done' : '⚙ Customize' }}
-        </button>
-        @if (editMode) {
-          <button class="secondary" (click)="resetLayout()">Reset layout</button>
+    <div class="overview-layout">
+      <!-- LEFT (2/3): the headline analytics graph with the comparison table below it. -->
+      <section class="col-main">
+        @if (error) {
+          <p class="muted">Couldn't reach the API: {{ error }}</p>
         }
-        <a class="btn" routerLink="/register">+ Register Resource</a>
-      </div>
-    </div>
+        <app-analytics-panel [analytics]="analyticsList" [names]="names" />
+      </section>
 
-    @if (editMode) {
-      <p class="muted" style="margin:0 0 1rem">
-        Drag the ⠿ handle to reorder · use S/M/L to resize · changes are saved in this browser.
-      </p>
-    }
-
-    @if (error) {
-      <p class="muted">Couldn't reach the API: {{ error }}</p>
-    }
-    @if (!error && resources.length === 0) {
-      <p class="muted">No resources yet. Register one to start collecting telemetry.</p>
-    }
-
-    <app-analytics-panel [analytics]="analyticsList" [names]="names" />
-
-    <div
-      class="board"
-      [class.editing]="editMode"
-      cdkDropList
-      cdkDropListOrientation="mixed"
-      (cdkDropListDropped)="drop($event)"
-    >
-      @for (r of resources; track r.id) {
-        <div
-          class="card board-card"
-          [ngClass]="'span-' + layout.pref(r.id).span"
-          [class.editing]="editMode"
-          cdkDrag
-          [cdkDragDisabled]="!editMode"
-        >
-          <div class="card-head">
-            @if (editMode) {
-              <span class="drag-handle" cdkDragHandle title="Drag to reorder">⠿</span>
-            }
-            <a class="card-title" [routerLink]="['/resource', r.id]">{{ r.name }}</a>
-            <span class="type-pill">{{ r.type }}</span>
-            <span class="badge" [class.online]="r.online" [class.offline]="!r.online">
-              <span class="dot"></span>{{ r.online ? 'online' : 'offline' }}
-            </span>
-            <span class="spacer"></span>
-            @if (analyticsFor(r.id); as a) {
-              <app-delta-badge [delta]="a.week" label="wk" tooltip="vs previous 7 days" />
-            }
-            <button
-              class="icon-btn"
-              (click)="toggleExpanded(r.id)"
-              [title]="layout.pref(r.id).expanded ? 'Collapse chart' : 'Expand chart'"
-            >
-              {{ layout.pref(r.id).expanded ? '▾' : '▸' }}
+      <!-- RIGHT (1/3): per-resource cards, stacked. -->
+      <aside class="col-side">
+        <div class="side-head">
+          <h3 style="margin:0">Resources</h3>
+          <div class="side-actions">
+            <button class="secondary" (click)="editMode = !editMode" title="Customize layout">
+              {{ editMode ? 'Done' : '⚙' }}
             </button>
+            @if (editMode) {
+              <button class="secondary" (click)="resetLayout()">Reset</button>
+            }
+            <a class="btn" routerLink="/register">+ Add</a>
           </div>
+        </div>
 
-          @if (editMode) {
-            <div class="size-bar">
-              <span class="muted">size</span>
-              @for (s of spans; track s) {
-                <button [class.active]="layout.pref(r.id).span === s" (click)="setSpan(r.id, s)">
-                  {{ sizeLabel(s) }}
+        @if (editMode) {
+          <p class="muted" style="margin:0 0 0.75rem">
+            Drag the ⠿ handle to reorder · changes are saved in this browser.
+          </p>
+        }
+        @if (!error && resources.length === 0) {
+          <p class="muted">No resources yet. Register one to start collecting telemetry.</p>
+        }
+
+        <div
+          class="board"
+          [class.editing]="editMode"
+          cdkDropList
+          (cdkDropListDropped)="drop($event)"
+        >
+          @for (r of resources; track r.id) {
+            <div
+              class="card board-card"
+              [class.editing]="editMode"
+              cdkDrag
+              [cdkDragDisabled]="!editMode"
+            >
+              <div class="card-head">
+                @if (editMode) {
+                  <span class="drag-handle" cdkDragHandle title="Drag to reorder">⠿</span>
+                }
+                <a class="card-title" [routerLink]="['/resource', r.id]">{{ r.name }}</a>
+                <span class="type-pill">{{ r.type }}</span>
+                <span class="badge" [class.online]="r.online" [class.offline]="!r.online">
+                  <span class="dot"></span>{{ r.online ? 'online' : 'offline' }}
+                </span>
+                <span class="spacer"></span>
+                @if (analyticsFor(r.id); as a) {
+                  <app-delta-badge [delta]="a.week" label="wk" tooltip="vs previous 7 days" />
+                }
+                <button
+                  class="icon-btn"
+                  (click)="toggleExpanded(r.id)"
+                  [title]="layout.pref(r.id).expanded ? 'Collapse chart' : 'Expand chart'"
+                >
+                  {{ layout.pref(r.id).expanded ? '▾' : '▸' }}
                 </button>
-              }
+              </div>
+
+              <div class="card-body">
+                @switch (r.type) {
+                  @case ('compute') { <app-compute-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
+                  @case ('api') { <app-api-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
+                  @case ('usage') { <app-usage-panel [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
+                }
+              </div>
+
+              <p class="muted card-foot">Last seen: {{ relative(r.last_seen) }}</p>
             </div>
           }
-
-          <div class="card-body">
-            @switch (r.type) {
-              @case ('compute') { <app-compute-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
-              @case ('api') { <app-api-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
-              @case ('usage') { <app-usage-panel [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
-            }
-          </div>
-
-          <p class="muted card-foot">Last seen: {{ relative(r.last_seen) }}</p>
         </div>
-      }
+      </aside>
     </div>
   `,
 })
@@ -135,7 +129,6 @@ export class OverviewComponent implements OnInit, OnDestroy {
   error = '';
   editMode = false;
 
-  readonly spans: CardSpan[] = [1, 2, 3];
   relative = relativeTime;
 
   // Stable Resource objects keyed by id. We mutate these in place across polls
@@ -204,14 +197,6 @@ export class OverviewComponent implements OnInit, OnDestroy {
 
   toggleExpanded(id: number): void {
     this.layout.setExpanded(id, !this.layout.pref(id).expanded);
-  }
-
-  setSpan(id: number, span: CardSpan): void {
-    this.layout.setSpan(id, span);
-  }
-
-  sizeLabel(span: CardSpan): string {
-    return span === 1 ? 'S' : span === 2 ? 'M' : 'L';
   }
 
   resetLayout(): void {

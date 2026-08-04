@@ -46,11 +46,15 @@ export interface UsagePoint {
 
 // Server-aggregated usage point (per-day or per-week average) used for the wide
 // month/year usage views where raw ~15 min gauge samples are too dense to read.
+// pace_* track how close usage stayed to an even weekly pace (100% = on track);
+// null for non-resetting windows or buckets with no usable pace samples.
 export interface UsageBucketPoint {
   timestamp: string;
   window_kind: string;
   utilization_avg: number;
   utilization_max: number;
+  pace_avg: number | null;
+  pace_max: number | null;
   sample_count: number;
 }
 

@@ -43,6 +43,12 @@ const RANGES: { key: RangeKey; label: string; ms: number; bucket?: 'day' | 'week
   { key: 'year', label: 'Year', ms: 365 * 86_400_000, bucket: 'week' },
 ];
 
+const WEEK_MS = 7 * 86_400_000;
+// Below this fraction of the week elapsed, pace = utilization / fraction is too
+// noisy to be meaningful (a tiny denominator right after the reset), so we drop
+// the point. Mirrors the server's guard in /usage/bucketed.
+const PACE_MIN_FRAC = 0.05;
+
 @Component({
   selector: 'app-usage-panel',
   standalone: true,
@@ -65,9 +71,9 @@ const RANGES: { key: RangeKey; label: string; ms: number; bucket?: 'day' | 'week
           </div>
           <div class="muted">
             resets in {{ resetIn(g.resets_at) }}
-            @if (g.window_kind === 'seven_day' && weekElapsedPct !== null) {
-              · week {{ weekElapsedPct.toFixed(0) }}% elapsed
-              @if (g.utilization < weekElapsedPct - 10) {
+            @if (g.window_kind === 'seven_day' && weekPace !== null) {
+              · pace {{ weekPace.toFixed(0) }}%
+              @if (weekPace < 90) {
                 <span class="under">— under-using your allowance</span>
               }
             }
@@ -82,7 +88,10 @@ const RANGES: { key: RangeKey; label: string; ms: number; bucket?: 'day' | 'week
           <button [class.active]="r.key === rangeKey" (click)="setRange(r.key)">{{ r.label }}</button>
         }
       </div>
-      <h4 class="muted" style="margin:0 0 0.25rem">{{ chartTitle }}</h4>
+      <h4 class="muted" style="margin:0 0 0.15rem">{{ chartTitle }}</h4>
+      <p class="muted" style="margin:0 0 0.35rem;font-size:0.76rem">
+        100% = on track to use your full weekly allowance · below = under-using · dashed line marks on-pace
+      </p>
     }
     <div class="chart-wrap" [class.compact]="compact" [style.height.px]="compact ? 120 : 200">
       <canvas #canvas></canvas>
@@ -101,6 +110,9 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
 
   gauges: Gauge[] = [];
   weekElapsedPct: number | null = null;
+  // Current pace: utilization ÷ fraction-of-week-elapsed (100% = exactly on
+  // track). Null in the first ~5% of a week where the ratio is too noisy.
+  weekPace: number | null = null;
   ranges = RANGES;
   rangeKey: RangeKey = 'week';
   private points: UsagePoint[] = [];
@@ -119,9 +131,9 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   get chartTitle(): string {
-    if (this.rangeKey === 'month') return 'Utilization by day — last 30 days';
-    if (this.rangeKey === 'year') return 'Utilization by week — last 12 months';
-    return 'Weekly utilization trend — last 7 days';
+    if (this.rangeKey === 'month') return 'Pace by day — last 30 days';
+    if (this.rangeKey === 'year') return 'Pace by week — last 12 months';
+    return 'Pace vs. even weekly usage — last 7 days';
   }
 
   ngOnInit(): void {
@@ -159,15 +171,16 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
     this.loadChart();
   }
 
-  // Populate chartData for the selected range, then render. The 7d view reuses
-  // the raw samples already fetched for the gauges; the month/year views ask the
-  // server for per-day / per-week averages so wide ranges stay light + readable.
+  // Populate chartData (weekly pace, not raw utilization — see paceFor) for the
+  // selected range, then render. The 7d view derives pace from the raw samples
+  // already fetched for the gauges; the month/year views read the server's
+  // per-day / per-week pace averages so wide ranges stay light + readable.
   private loadChart(): void {
     const range = this.ranges.find((r) => r.key === this.rangeKey)!;
     if (!range.bucket) {
       this.chartData = this.points
         .filter((p) => p.window_kind === 'seven_day')
-        .map((p) => ({ x: new Date(p.timestamp).getTime(), y: Number(p.utilization) }));
+        .map((p) => ({ x: new Date(p.timestamp).getTime(), y: this.paceFor(p) }));
       this.render();
       return;
     }
@@ -177,11 +190,22 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
         .filter((p) => p.window_kind === 'seven_day')
         .map((p) => ({
           x: new Date(p.timestamp).getTime(),
-          y: p.utilization_avg,
-          max: p.utilization_max,
+          y: p.pace_avg,
+          max: p.pace_max ?? undefined,
         }));
       this.render();
     });
+  }
+
+  // Pace = utilization ÷ fraction-of-week-elapsed, so a resource used evenly
+  // reads ~100% all week instead of sawtoothing 0→100 across each reset. Needs
+  // resets_at to locate the week; suppressed in the noisy first ~5% of a week.
+  private paceFor(p: UsagePoint): number | null {
+    if (!p.resets_at) return null;
+    const weekStart = new Date(p.resets_at).getTime() - WEEK_MS;
+    const frac = (new Date(p.timestamp).getTime() - weekStart) / WEEK_MS;
+    if (frac <= PACE_MIN_FRAC) return null;
+    return Number(p.utilization) / Math.min(1, frac);
   }
 
   label(kind: string): string {
@@ -226,24 +250,51 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
       });
 
-    // Pacing: how far through the 7-day window are we?
+    // Pacing: how far through the 7-day window are we, and how does current
+    // usage compare to an even pace (100% = exactly on track)?
     const weekly = latest.get('seven_day');
     if (weekly?.resets_at) {
       const resets = new Date(weekly.resets_at).getTime();
-      const start = resets - 7 * 86_400_000;
-      this.weekElapsedPct = Math.max(0, Math.min(100, ((Date.now() - start) / (7 * 86_400_000)) * 100));
+      const start = resets - WEEK_MS;
+      const frac = (Date.now() - start) / WEEK_MS;
+      this.weekElapsedPct = Math.max(0, Math.min(100, frac * 100));
+      this.weekPace = frac > PACE_MIN_FRAC ? Number(weekly.utilization) / Math.min(1, frac) : null;
     } else {
       this.weekElapsedPct = null;
+      this.weekPace = null;
     }
   }
 
   private buildChart(): void {
+    // Dashed guide line at 100% ("on pace") so the trend reads against it at a
+    // glance. Drawn as an inline plugin rather than a fake dataset so it never
+    // shows in tooltips/legend and always spans the full width.
+    const onPaceLine = {
+      id: 'onPaceLine',
+      afterDatasetsDraw: (chart: Chart) => {
+        const y = chart.scales['y'];
+        if (!y) return;
+        const yPix = y.getPixelForValue(100);
+        const { left, right, top, bottom } = chart.chartArea;
+        if (yPix < top || yPix > bottom) return; // 100% off the current scale
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(147,161,184,0.7)'; // --muted
+        ctx.moveTo(left, yPix);
+        ctx.lineTo(right, yPix);
+        ctx.stroke();
+        ctx.restore();
+      },
+    };
     const cfg: ChartConfiguration = {
       type: 'line',
       data: {
         datasets: [
           {
-            label: 'Weekly %',
+            label: 'Pace %',
             data: [],
             borderColor: '#4f8cff',
             backgroundColor: 'rgba(79,140,255,0.15)',
@@ -255,6 +306,7 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
           },
         ],
       },
+      plugins: [onPaceLine],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -279,8 +331,10 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
             grid: { color: '#22304a' },
           },
           y: {
+            // Pace can exceed 100% (using faster than even), so no hard cap;
+            // suggestedMax keeps a typical on-pace line from hugging the top.
             min: 0,
-            max: 100,
+            suggestedMax: 120,
             ticks: { color: '#93a1b8', callback: (v) => v + '%' },
             grid: { color: '#22304a' },
           },
@@ -300,10 +354,10 @@ export class UsagePanelComponent implements OnInit, AfterViewInit, OnDestroy {
               },
               label: (ctx) => {
                 const max = (ctx.raw as { max?: number })?.max;
-                // Bucketed views plot the average; surface the peak alongside it.
+                // Bucketed views plot the average pace; surface the peak too.
                 return this.chartBucket && max != null
-                  ? `Avg ${ctx.parsed.y?.toFixed(1)}% · peak ${max.toFixed(0)}%`
-                  : `Weekly: ${ctx.parsed.y?.toFixed(1)}%`;
+                  ? `Avg pace ${ctx.parsed.y?.toFixed(0)}% · peak ${max.toFixed(0)}%`
+                  : `Pace: ${ctx.parsed.y?.toFixed(0)}%`;
               },
             },
           },

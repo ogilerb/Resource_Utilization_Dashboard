@@ -176,6 +176,49 @@ describe('resources + metrics', { skip: hasDb ? false : 'no test Postgres reacha
     assert.equal(wSeven[0].sample_count, 4);
   });
 
+  it('reports weekly pace alongside utilization in bucketed usage', async () => {
+    const u = await (
+      await afetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'pace-mac', type: 'usage', interval_seconds: 900 }),
+      })
+    ).json();
+    const paceId = u.resource.id;
+
+    // Week runs Jul 1 00:00 → Jul 8 00:00 (resets_at). pace = utilization /
+    // fraction-of-week-elapsed, so 40% used at the halfway point is 80% pace.
+    const resets = '2026-07-08T00:00:00Z';
+    const rows: [number, string][] = [
+      // Jul 1, ~1h in (frac ≈ 0.006 < 0.05): pace is suppressed (too noisy).
+      [5, '2026-07-01T01:00:00Z'],
+      // Jul 4 12:00, exactly halfway (frac = 0.5): pace = util / 0.5.
+      [40, '2026-07-04T12:00:00Z'], // pace 80
+      [60, '2026-07-04T12:00:00Z'], // pace 120
+    ];
+    for (const [util, ts] of rows) {
+      await pool.query(
+        `INSERT INTO usage_metrics (resource_id, window_kind, utilization, resets_at, timestamp)
+         VALUES ($1, 'seven_day', $2, $3, $4)`,
+        [paceId, util, resets, ts]
+      );
+    }
+
+    const url = `${ctx.baseUrl}/api/metrics/usage/bucketed?resource_id=${paceId}&bucket=day&from=2026-07-01T00:00:00Z&to=2026-07-05T00:00:00Z`;
+    const { points } = await (await afetch(url)).json();
+
+    const jul1 = points.find((p: any) => new Date(p.timestamp).toISOString() === '2026-07-01T00:00:00.000Z');
+    assert.equal(jul1.utilization_avg, 5);
+    assert.equal(jul1.pace_avg, null, 'pace suppressed in the first ~5% of the week');
+    assert.equal(jul1.pace_max, null);
+
+    const jul4 = points.find((p: any) => new Date(p.timestamp).toISOString() === '2026-07-04T00:00:00.000Z');
+    assert.equal(jul4.utilization_avg, 50);
+    assert.equal(jul4.pace_avg, 100); // avg of 80 and 120
+    assert.equal(jul4.pace_max, 120);
+    assert.equal(jul4.sample_count, 2);
+  });
+
   it('rejects a usage bucketed request with an invalid bucket', async () => {
     const res = await afetch(
       `${ctx.baseUrl}/api/metrics/usage/bucketed?resource_id=${computeId}&bucket=hour`
