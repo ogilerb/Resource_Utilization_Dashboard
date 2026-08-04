@@ -19,7 +19,7 @@ const MAX_BUFFER = 5000; // cap pending points (~ hours of data) to bound memory
 
 /**
  * @param {object} opts
- * @param {() => Promise<{cpu_percent:number|null, memory_bytes:number|null}>} opts.collect
+ * @param {() => Promise<{cpu_percent:number|null, memory_bytes:number|null, memory_total_bytes?:number|null}>} opts.collect
  * @param {object} opts.config  { endpoint, apiKey, intervalSeconds, bufferFile }
  */
 export function createAgent({ collect, config }) {
@@ -150,7 +150,9 @@ export async function loadConfig(defaultPath) {
 /**
  * Cross-platform CPU% + used-memory collector using only Node's `os` module.
  * CPU% is the average busy fraction across all cores between successive calls,
- * so the first call returns null (no baseline yet).
+ * so the first call returns null (no baseline yet). memory_total_bytes is the
+ * machine's total usable RAM (`os.totalmem()`); the server stores it as resource
+ * metadata so the dashboard can plot memory as a % of total, not just raw bytes.
  */
 export function makeOsCollector() {
   function cpuTimes() {
@@ -174,6 +176,7 @@ export function makeOsCollector() {
     return {
       cpu_percent: cpu === null ? null : Math.max(0, Math.min(100, Number(cpu.toFixed(2)))),
       memory_bytes: os.totalmem() - os.freemem(),
+      memory_total_bytes: os.totalmem(),
     };
   };
 }

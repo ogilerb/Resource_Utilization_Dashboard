@@ -17,6 +17,7 @@ import { ComputeChartComponent } from './compute-chart.component';
 import { ApiChartComponent } from './api-chart.component';
 import { UsagePanelComponent } from './usage-panel.component';
 import { AnalyticsPanelComponent } from './analytics-panel.component';
+import { MemoryUsagePanelComponent } from './memory-usage-panel.component';
 import { DeltaBadgeComponent } from './delta-badge.component';
 
 @Component({
@@ -32,6 +33,7 @@ import { DeltaBadgeComponent } from './delta-badge.component';
     ApiChartComponent,
     UsagePanelComponent,
     AnalyticsPanelComponent,
+    MemoryUsagePanelComponent,
     DeltaBadgeComponent,
   ],
   template: `
@@ -42,6 +44,7 @@ import { DeltaBadgeComponent } from './delta-badge.component';
           <p class="muted">Couldn't reach the API: {{ error }}</p>
         }
         <app-analytics-panel [analytics]="analyticsList" [names]="names" />
+        <app-memory-usage-panel />
       </section>
 
       <!-- RIGHT (1/3): per-resource cards, stacked. -->

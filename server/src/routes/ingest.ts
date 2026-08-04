@@ -11,6 +11,10 @@ export const ingestRouter = Router();
 const computeSchema = z.object({
   cpu_percent: z.number().min(0).max(100).nullable().optional(),
   memory_bytes: z.number().int().nonnegative().nullable().optional(),
+  // Machine's total usable RAM. Static per machine, so it's stored once as
+  // resource metadata (not per-sample) and lets the dashboard plot memory as a
+  // percentage of total, not just raw bytes.
+  memory_total_bytes: z.number().int().positive().nullable().optional(),
   // Optional client-supplied capture time; defaults to server now() if absent.
   timestamp: z.string().datetime().optional(),
 });
@@ -37,6 +41,22 @@ ingestRouter.post(
          RETURNING timestamp`,
         [resource.id, body.cpu_percent ?? null, body.memory_bytes ?? null, body.timestamp ?? null]
       );
+
+      // Persist total RAM as resource metadata. It's static, so only write when
+      // it's first reported or actually changes (a RAM upgrade) — in steady state
+      // this is a cheap JS comparison against the value the auth middleware
+      // already loaded, so no extra DB write happens on the ingest hot path.
+      if (
+        body.memory_total_bytes != null &&
+        Number(resource.metadata?.['memory_total_bytes']) !== body.memory_total_bytes
+      ) {
+        await query(
+          `UPDATE resources
+              SET metadata = metadata || jsonb_build_object('memory_total_bytes', $2::bigint)
+            WHERE id = $1`,
+          [resource.id, body.memory_total_bytes]
+        );
+      }
 
       broadcastCompute({
         resourceId: resource.id,

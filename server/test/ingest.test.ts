@@ -78,6 +78,42 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     assert.equal(rows[0].memory_bytes, 2048);
   });
 
+  it('stores memory_total_bytes as resource metadata and updates it on change', async () => {
+    // First report records the machine's total RAM in metadata.
+    let res = await fetch(`${ctx.baseUrl}/api/ingest/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': computeKey },
+      body: JSON.stringify({
+        cpu_percent: 10,
+        memory_bytes: 8_000_000_000,
+        memory_total_bytes: 16_000_000_000,
+      }),
+    });
+    assert.equal(res.status, 202);
+    let { rows } = await pool.query(
+      `SELECT metadata->>'memory_total_bytes' AS total FROM resources WHERE id = $1`,
+      [computeId]
+    );
+    assert.equal(rows[0].total, '16000000000');
+
+    // A later report with a different total (a RAM upgrade) updates it.
+    res = await fetch(`${ctx.baseUrl}/api/ingest/compute`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': computeKey },
+      body: JSON.stringify({
+        cpu_percent: 10,
+        memory_bytes: 9_000_000_000,
+        memory_total_bytes: 32_000_000_000,
+      }),
+    });
+    assert.equal(res.status, 202);
+    ({ rows } = await pool.query(
+      `SELECT metadata->>'memory_total_bytes' AS total FROM resources WHERE id = $1`,
+      [computeId]
+    ));
+    assert.equal(rows[0].total, '32000000000');
+  });
+
   it('rejects out-of-range cpu_percent', async () => {
     const res = await fetch(`${ctx.baseUrl}/api/ingest/compute`, {
       method: 'POST',

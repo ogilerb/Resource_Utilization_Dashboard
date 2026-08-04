@@ -180,3 +180,44 @@ analyticsRouter.get('/weekly-usage', validateQuery(weeklyUsageSchema), async (re
     next(err);
   }
 });
+
+// GET /api/analytics/memory-usage?weeks= — weekly RAM utilization (% of total)
+// per compute machine, as one time-series line each, for overlaying every machine
+// on a shared week (x) vs RAM-% (y) chart — the cross-machine memory view.
+//
+// pct = avg(memory_bytes) / total_ram * 100, where total_ram is the machine's
+// total usable RAM stored in resources.metadata.memory_total_bytes by ingest.
+// Machines with no reported total (older/undeployed agents) are omitted — there's
+// no denominator to make a percentage from.
+analyticsRouter.get('/memory-usage', validateQuery(weeklyUsageSchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof weeklyUsageSchema>>(req);
+    const { rows } = await query(
+      `WITH weekly AS (
+         SELECT resource_id,
+                date_trunc('week', timestamp)   AS week_start,
+                avg(memory_bytes)::double precision AS mem_avg
+           FROM compute_metrics
+          WHERE timestamp >= now() - ($1::int || ' weeks')::interval
+            AND memory_bytes IS NOT NULL
+          GROUP BY resource_id, week_start
+       )
+       SELECT r.id AS resource_id, r.name, r.type,
+              json_agg(json_build_object(
+                'week_start', w.week_start,
+                'pct', round((w.mem_avg / (r.metadata->>'memory_total_bytes')::bigint * 100)::numeric, 2)
+              ) ORDER BY w.week_start) AS points
+         FROM weekly w
+         JOIN resources r ON r.id = w.resource_id
+        WHERE r.type = 'compute'
+          AND (r.metadata->>'memory_total_bytes') ~ '^[0-9]+$'
+          AND (r.metadata->>'memory_total_bytes')::bigint > 0
+        GROUP BY r.id, r.name, r.type
+        ORDER BY r.name`,
+      [q.weeks]
+    );
+    res.json({ resources: rows });
+  } catch (err) {
+    next(err);
+  }
+});

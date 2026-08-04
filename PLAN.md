@@ -55,11 +55,15 @@ Connect and measure Antigravity usage and ingest it through the dynamic-resource
 - **Open question first:** determine how Antigravity exposes usage — official API/usage export vs. none. If none, fall back to the same pattern already used for the Gemini web app: a local log/estimator or a proxy/extension that counts request/response activity.
 - **Ingest:** whichever source, POST estimates to the existing `/api/ingest/api` endpoint so no backend shape changes are needed.
 
-### RAM analytics
-`compute_metrics.memory_bytes` is already collected, so this is primarily a visualization/derivation effort rather than new collection.
+### RAM analytics — ✅ shipped (2026-08-04)
+`compute_metrics.memory_bytes` was already collected; this was primarily a derivation/visualization effort.
 
-- **Build:** RAM-specific charts alongside the existing CPU views — per-machine memory trend and a combined cross-machine view.
-- **Gap to close for utilization %:** raw bytes alone can't show "% of RAM used." Have agents also report total physical memory (once, as resource metadata, or as a second column) so the dashboard can plot utilization percentage, not just absolute bytes.
+**Shipped:**
+- **Utilization-% gap closed.** Agents now report `memory_total_bytes` (total usable RAM: `os.totalmem()` on Node agents, `TotalVisibleMemorySize` on Windows). Ingest stores it once as `resources.metadata.memory_total_bytes` — no schema migration, and only rewritten when it actually changes — so the dashboard has a denominator for "% of total RAM."
+- **Per-machine chart.** The existing compute chart keeps its CPU% (left) + memory-in-GB (right) lines; the memory tooltip now also shows RAM as a % of total (`10.1 GB (63% of 16 GB)`) and the caption shows total RAM. Falls back to GB-only until a machine has reported its total.
+- **Combined cross-machine view.** A new "RAM utilization" panel on the overview overlays every machine's weekly RAM% (`GET /api/analytics/memory-usage`), reusing the Usage-trends chart's visual system (0–100% axis, per-machine colors). Machines with no reported total are omitted.
+
+**Deferred:** the "Performance vs. previous period" table still shows memory in GB (the WoW/MoM arrows are identical in GB or %); a fine-grained range selector on the cross-machine graph (it follows the weekly convention for now).
 
 ---
 
@@ -110,7 +114,7 @@ Bring the README in line with the current architecture and the features above �
 
 The first UI/UX polish pass has shipped (see UI/UX section); **further UI/UX changes are deliberately deferred to after the feature work** per the user's preference.
 
-1. **RAM analytics** — cheapest win; data already exists, only needs the utilization-% reporting gap closed.
+1. **RAM analytics** — ✅ shipped (2026-08-04). Utilization-% gap closed via agent-reported total RAM; per-machine RAM% (tooltip/caption) and a cross-machine RAM% overlay.
 2. **Google Calendar time analytics** — high value, and the OAuth credentials already exist (pending connector authorization).
 3. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
 4. **Antigravity usage** — gated on the usage-exposure investigation.

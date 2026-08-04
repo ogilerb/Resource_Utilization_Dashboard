@@ -38,10 +38,13 @@ function Get-Metric {
     Measure-Object -Property LoadPercentage -Average).Average
   $os = Get-CimInstance -ClassName Win32_OperatingSystem
   $usedKb = $os.TotalVisibleMemorySize - $os.FreePhysicalMemory
+  # TotalVisibleMemorySize is the RAM the OS reports as usable (KB); the server
+  # stores it as resource metadata so the dashboard can plot memory as % of total.
   return [ordered]@{
-    cpu_percent  = [double]$cpu
-    memory_bytes = [int64]$usedKb * 1024
-    timestamp    = (Get-Date).ToUniversalTime().ToString('o')
+    cpu_percent        = [double]$cpu
+    memory_bytes       = [int64]$usedKb * 1024
+    memory_total_bytes = [int64]$os.TotalVisibleMemorySize * 1024
+    timestamp          = (Get-Date).ToUniversalTime().ToString('o')
   }
 }
 

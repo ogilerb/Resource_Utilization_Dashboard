@@ -79,12 +79,22 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
     return this.ranges.find((r) => r.ms === this.rangeMs)?.bucket;
   }
 
+  // Total usable RAM for this machine, reported by the agent and stored as
+  // resource metadata. Null until an updated agent has checked in; when known it
+  // lets the memory tooltip/caption show memory as a % of total, not just bytes.
+  get memTotal(): number | null {
+    const t = Number(this.resource.metadata?.['memory_total_bytes']);
+    return Number.isFinite(t) && t > 0 ? t : null;
+  }
+
   get caption(): string {
-    if (this.bucket === 'hour')
-      return 'Each point is a 1-hour average. Breaks are periods with no data (machine asleep/offline).';
-    if (this.bucket === 'day')
-      return 'Each point is a 1-day average. Breaks are periods with no data (machine asleep/offline).';
-    return 'Breaks in the line are periods with no data (machine asleep/offline).';
+    const base =
+      this.bucket === 'hour'
+        ? 'Each point is a 1-hour average. Breaks are periods with no data (machine asleep/offline).'
+        : this.bucket === 'day'
+          ? 'Each point is a 1-day average. Breaks are periods with no data (machine asleep/offline).'
+          : 'Breaks in the line are periods with no data (machine asleep/offline).';
+    return this.memTotal ? `${base} · Total RAM: ${formatBytes(this.memTotal)}` : base;
   }
 
   ngAfterViewInit(): void {
@@ -188,9 +198,14 @@ export class ComputeChartComponent implements AfterViewInit, OnChanges, OnDestro
               },
               label: (ctx) => {
                 const avg = this.bucket ? 'Avg ' : '';
-                return ctx.dataset.label === 'Memory'
-                  ? `${avg}Memory: ${formatBytes(ctx.parsed.y)}`
-                  : `${avg}CPU: ${ctx.parsed.y?.toFixed(1)}%`;
+                if (ctx.dataset.label !== 'Memory') {
+                  return `${avg}CPU: ${ctx.parsed.y?.toFixed(1)}%`;
+                }
+                const bytes = ctx.parsed.y;
+                const total = this.memTotal;
+                return total && bytes != null
+                  ? `${avg}Memory: ${formatBytes(bytes)} (${((bytes / total) * 100).toFixed(0)}% of ${formatBytes(total)})`
+                  : `${avg}Memory: ${formatBytes(bytes)}`;
               },
             },
           },

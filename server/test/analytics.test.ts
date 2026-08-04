@@ -108,6 +108,46 @@ describe('analytics summary', { skip: hasDb ? false : 'no test Postgres reachabl
     assert.equal(subLatest.pct, 50);
   });
 
+  it('returns weekly RAM% per machine from the stored total, omitting machines with no total', async () => {
+    const withTotal = await (
+      await afetch(`${ctx.baseUrl}/api/resources`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'ram-mac', type: 'compute', interval_seconds: 5 }),
+      })
+    ).json();
+    const ramId = withTotal.resource.id;
+
+    // Total RAM = 10 GB in metadata (as ingest would have stored it).
+    await pool.query(
+      `UPDATE resources SET metadata = metadata || jsonb_build_object('memory_total_bytes', $2::bigint) WHERE id = $1`,
+      [ramId, 10_000_000_000]
+    );
+    // Used memory this week averages 5 GB → 50% of 10 GB.
+    await pool.query(
+      `INSERT INTO compute_metrics (resource_id, memory_bytes, timestamp) VALUES
+         ($1, 4000000000, now() - interval '1 hour'),
+         ($1, 6000000000, now() - interval '2 hours')`,
+      [ramId]
+    );
+
+    const { resources } = await (
+      await afetch(`${ctx.baseUrl}/api/analytics/memory-usage`)
+    ).json();
+
+    const line = resources.find((r: any) => r.resource_id === ramId);
+    assert.ok(line, 'machine with a known total is present');
+    // computeId (from the outer before) has memory data but no metadata total →
+    // no denominator for a percentage, so it must be omitted.
+    assert.ok(
+      !resources.some((r: any) => r.resource_id === computeId),
+      'machine without a reported total is omitted'
+    );
+
+    const latest = line.points[line.points.length - 1];
+    assert.equal(latest.pct, 50);
+  });
+
   it('returns delta_pct null when the previous period has no data', async () => {
     // A fresh resource with only a current-week point → no previous baseline.
     const fresh = await (

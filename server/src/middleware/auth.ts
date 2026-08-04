@@ -6,6 +6,7 @@ export interface AuthedResource {
   name: string;
   type: 'compute' | 'api' | 'usage';
   interval_seconds: number;
+  metadata: Record<string, unknown>;
 }
 
 // Augment Express's Request so downstream handlers see the resolved resource.
@@ -36,7 +37,7 @@ export async function requireApiKey(req: Request, res: Response, next: NextFunct
 
   try {
     const { rows } = await query<AuthedResource>(
-      `SELECT id, name, type, interval_seconds
+      `SELECT id, name, type, interval_seconds, metadata
          FROM resources
         WHERE api_key = $1 AND status = 'active'`,
       [key]

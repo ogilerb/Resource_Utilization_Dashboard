@@ -107,4 +107,15 @@ export class ApiService {
       })
       .pipe(map((r) => r.resources));
   }
+
+  // Weekly RAM-utilization (% of total) trend per compute machine — the
+  // cross-machine memory overlay. Same shape as weeklyUsage (one line each).
+  memoryUsage(weeks = 12): Observable<WeeklyUsageResource[]> {
+    const params = new HttpParams().set('weeks', weeks);
+    return this.http
+      .get<{ resources: WeeklyUsageResource[] }>(`${this.base}/api/analytics/memory-usage`, {
+        params,
+      })
+      .pipe(map((r) => r.resources));
+  }
 }
