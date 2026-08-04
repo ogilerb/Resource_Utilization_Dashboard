@@ -236,7 +236,11 @@ export class CalendarPanelComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   // --- 60-day rolling stats (independent of the chart's range selector) ------
-  private computeStats(points: TimePoint[], categories: CalendarCategory[]): void {
+  private computeStats(rawPoints: TimePoint[], categories: CalendarCategory[]): void {
+    // Normalize `day` to a bare YYYY-MM-DD regardless of how the server encodes
+    // it (plain string, or an ISO timestamp from a DATE column), so day-key
+    // comparisons (streaks, windows) line up.
+    const points = rawPoints.map((p) => ({ ...p, day: p.day.slice(0, 10) }));
     this.empty = points.length === 0;
     const order = categories.length ? categories : this.derivedCategories(points);
     const tierOf = new Map(order.map((c) => [c.category, c.tier]));
@@ -335,15 +339,16 @@ export class CalendarPanelComponent implements OnInit, AfterViewInit, OnDestroy 
     const range = this.ranges.find((r) => r.key === this.rangeKey)!;
     const from = new Date(Date.now() - range.days * DAY_MS).toISOString();
     this.api.timeBucketed(this.resource.id, range.bucket, from).subscribe((resp) => {
-      const order = resp.categories.length ? resp.categories : this.derivedCategories(resp.points);
-      const days = [...new Set(resp.points.map((p) => p.day))].sort();
+      const points = resp.points.map((p) => ({ ...p, day: p.day.slice(0, 10) }));
+      const order = resp.categories.length ? resp.categories : this.derivedCategories(points);
+      const days = [...new Set(points.map((p) => p.day))].sort();
       const dayIndex = new Map(days.map((d, i) => [d, i]));
 
       // minutes[category][dayIdx] and switches per bucket.
       const minutesBy = new Map<string, number[]>();
       const switches = new Array(days.length).fill(0);
       for (const c of order) minutesBy.set(c.category, new Array(days.length).fill(0));
-      for (const p of resp.points) {
+      for (const p of points) {
         const di = dayIndex.get(p.day);
         if (di == null) continue;
         const arr = minutesBy.get(p.category);

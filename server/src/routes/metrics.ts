@@ -201,7 +201,10 @@ metricsRouter.get('/time', validateQuery(rangeSchema), async (req, res, next) =>
   try {
     const q = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
     const { rows } = await query(
-      `SELECT day, category, minutes, event_count
+      // to_char keeps `day` a plain 'YYYY-MM-DD' string. Without it node-pg maps
+      // the DATE column to a JS Date, which res.json serializes as a full ISO
+      // timestamp — the client then can't parse it as a local day.
+      `SELECT to_char(day, 'YYYY-MM-DD') AS day, category, minutes, event_count
          FROM time_metrics
         WHERE resource_id = $1
           AND ($2::timestamptz IS NULL OR day >= $2::date)
@@ -223,7 +226,8 @@ metricsRouter.get('/time/bucketed', validateQuery(timeBucketedSchema), async (re
   try {
     const q = getValidatedQuery<z.infer<typeof timeBucketedSchema>>(req);
     const { rows } = await query(
-      `SELECT date_trunc($5::text, day::timestamp)::date AS day,
+      // to_char → plain 'YYYY-MM-DD' string (see /time note).
+      `SELECT to_char(date_trunc($5::text, day::timestamp), 'YYYY-MM-DD') AS day,
               category,
               sum(minutes)::int     AS minutes,
               sum(event_count)::int AS event_count
