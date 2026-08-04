@@ -8,11 +8,12 @@ import { relativeTime } from '../util';
 import { ComputeChartComponent } from './compute-chart.component';
 import { ApiChartComponent } from './api-chart.component';
 import { UsagePanelComponent } from './usage-panel.component';
+import { CalendarPanelComponent } from './calendar-panel.component';
 
 @Component({
   selector: 'app-resource-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, ComputeChartComponent, ApiChartComponent, UsagePanelComponent],
+  imports: [CommonModule, RouterLink, ComputeChartComponent, ApiChartComponent, UsagePanelComponent, CalendarPanelComponent],
   template: `
     <p><a routerLink="/">← Overview</a></p>
 
@@ -34,6 +35,7 @@ import { UsagePanelComponent } from './usage-panel.component';
           @case ('compute') { <app-compute-chart [resource]="resource" /> }
           @case ('api') { <app-api-chart [resource]="resource" /> }
           @case ('usage') { <app-usage-panel [resource]="resource" /> }
+          @case ('calendar') { <app-calendar-panel [resource]="resource" /> }
         }
       </div>
     } @else if (error) {

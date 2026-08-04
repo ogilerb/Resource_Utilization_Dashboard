@@ -68,6 +68,25 @@ export const config = {
     resourceName: str('GEMINI_RESOURCE_NAME', 'Gemini API'),
     cron: str('GEMINI_BILLING_CRON', '0 4 * * *'),
   },
+
+  // Google Calendar time analytics. The worker is disabled unless BOTH a token
+  // file (minted once via scripts/authorize-calendar.mjs) and a calendars file
+  // (id→category→tier map) are configured. Read-only OAuth; own token, separate
+  // from GOOGLE_APPLICATION_CREDENTIALS (which is the Gemini BigQuery service
+  // account — a different Google auth mode).
+  calendar: {
+    tokenPath: process.env.GOOGLE_CALENDAR_TOKEN_PATH || '',
+    credentialsPath: process.env.GOOGLE_CALENDAR_CREDENTIALS_PATH || '',
+    calendarsFile: process.env.GOOGLE_CALENDARS_FILE || '',
+    resourceName: str('CALENDAR_RESOURCE_NAME', 'Time Tracking'),
+    cron: str('CALENDAR_CRON', '0 * * * *'),
+    // Day boundaries are computed in this timezone so per-day buckets are local.
+    timezone: str('CALENDAR_TIMEZONE', 'America/Vancouver'),
+    // Each scheduled run recomputes the last N days (catches edits/deletes).
+    recomputeDays: num('CALENDAR_RECOMPUTE_DAYS', 14),
+    // The one-time backfill script pulls this many days of history.
+    backfillDays: num('CALENDAR_BACKFILL_DAYS', 365),
+  },
 } as const;
 
 export type Config = typeof config;

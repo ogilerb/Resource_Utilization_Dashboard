@@ -35,9 +35,19 @@ services:
       # Optional usage workers — leave blank to disable.
       ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
       GEMINI_BILLING_TABLE: ${GEMINI_BILLING_TABLE:-}
+      # Google Calendar time analytics. Paths point at the mounted ./server/config
+      # dir below; the worker stays disabled until the token + calendars files exist.
+      GOOGLE_CALENDAR_CREDENTIALS_PATH: ${GOOGLE_CALENDAR_CREDENTIALS_PATH:-./config/google-credentials.json}
+      GOOGLE_CALENDAR_TOKEN_PATH: ${GOOGLE_CALENDAR_TOKEN_PATH:-./config/google-token.json}
+      GOOGLE_CALENDARS_FILE: ${GOOGLE_CALENDARS_FILE:-./config/calendars.json}
+      CALENDAR_TIMEZONE: ${CALENDAR_TIMEZONE:-America/Vancouver}
     # Exposed only inside the compose network (not published to the host).
     expose:
       - "4000"
+    # Mount the calendar worker's secrets (OAuth token/client + real calendar IDs)
+    # by path — read-only — rather than baking them into the image layer.
+    volumes:
+      - ./server/config:/app/config:ro
 
   web:
     build: ./dashboard

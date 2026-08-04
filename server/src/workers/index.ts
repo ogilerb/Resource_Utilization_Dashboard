@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { runRetention } from './retention.js';
 import { runAnthropicUsage } from './anthropic-usage.js';
 import { runGeminiBilling } from './gemini-billing.js';
+import { runCalendarTime } from './calendar-time.js';
 
 type Task = { name: string; schedule: string; run: () => Promise<void>; enabled: boolean };
 
@@ -19,6 +20,12 @@ const tasks: Task[] = [
     schedule: config.gemini.cron,
     run: () => runGeminiBilling(),
     enabled: Boolean(config.gemini.billingTable),
+  },
+  {
+    name: 'calendar-time',
+    schedule: config.calendar.cron,
+    run: () => runCalendarTime(),
+    enabled: Boolean(config.calendar.tokenPath && config.calendar.calendarsFile),
   },
 ];
 

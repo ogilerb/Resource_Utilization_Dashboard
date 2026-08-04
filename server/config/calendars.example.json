@@ -1,0 +1,12 @@
+{
+  "$comment": "Copy to calendars.json (gitignored) and fill in real calendar IDs. One entry per Google calendar. `id` = the calendar's address (…@group.calendar.google.com). `category` = the domain name events are logged under (1 calendar = 1 category). `tier` groups categories for the Productive-vs-Waste metric: 'productive' | 'neutral' | 'waste'. Run the Garmin project's list_calendars.py (or Google Calendar settings) to find each id.",
+  "calendars": [
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Compounding", "tier": "productive" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Enriching", "tier": "productive" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Professional, Self-Directed", "tier": "productive" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Professional, Other-Directed", "tier": "productive" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Essential", "tier": "neutral" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Unfocused/Idling/Unactivated", "tier": "waste" },
+    { "id": "FILL_ME@group.calendar.google.com", "category": "Waste", "tier": "waste" }
+  ]
+}

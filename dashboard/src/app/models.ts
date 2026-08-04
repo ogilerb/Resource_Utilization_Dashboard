@@ -1,4 +1,4 @@
-export type ResourceType = 'compute' | 'api' | 'usage';
+export type ResourceType = 'compute' | 'api' | 'usage' | 'calendar';
 
 export interface Resource {
   id: number;
@@ -56,6 +56,31 @@ export interface UsageBucketPoint {
   pace_avg: number | null;
   pace_max: number | null;
   sample_count: number;
+}
+
+// --- Calendar time analytics (GET /api/metrics/time[/bucketed]) ---
+
+export type CalendarTier = 'productive' | 'neutral' | 'waste';
+
+// One (day, category) time bucket: minutes spent + contiguous blocks that day.
+export interface TimePoint {
+  day: string; // YYYY-MM-DD (local)
+  category: string;
+  minutes: number;
+  event_count: number;
+}
+
+// Config-order category→tier map, so the panel groups/orders/colors the stack
+// consistently even for categories with no data in the window.
+export interface CalendarCategory {
+  category: string;
+  tier: CalendarTier;
+}
+
+export interface TimeMetricsResponse {
+  resource_id: number;
+  points: TimePoint[];
+  categories: CalendarCategory[];
 }
 
 export interface RegisterResponse {

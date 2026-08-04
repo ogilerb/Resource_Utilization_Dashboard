@@ -39,15 +39,22 @@ The dashboard started as a flat auto-rendered grid of per-resource cards driven 
 
 ## New data sources & integrations
 
-### Google Calendar time analytics
-Pull events from Google Calendar and surface how time is actually spent (hours per category/project, meeting load, focus vs. fragmented time).
+### Google Calendar time analytics — ✅ shipped (2026-08-04)
+Reads the 7 life-domain calendars (the ones the Garmin watch app writes into) and
+surfaces how time is actually spent. Because these are single-active-domain time
+logs rather than a meeting schedule, we built domain-appropriate metrics instead
+of the originally-sketched "meeting load / focus-from-gaps".
 
-- **Auth:** reuse the existing Google API/OAuth credentials from the email-labeling and Garmin-watch projects — those are already an approved Google Cloud project with user consent, so no new project or consent screen is needed. Add the `calendar.readonly` scope if it isn't already granted.
-- **Collector:** a scheduled `node-cron` worker (`server/src/workers/calendar-time.ts`) that pulls events on an interval and aggregates them daily. Register Calendar as a resource so it flows through the dynamic model.
-- **Categorization:** map events → categories via calendar name, event color, and keyword rules (config-driven so rules can change without code edits).
-- **Data model:** this is a new shape (time buckets, not tokens/cost), so add a `time_metrics` table (`resource_id`, `day`, `category`, `minutes`, `event_count`) and widen the `resources.type` CHECK to include `calendar`/`time`. Upsert by `(resource, day, category)` for idempotent re-runs.
-- **Dashboard:** stacked area/bar of hours-by-category over time, a meeting-load trend, and a focus-time metric derived from gaps between events.
-- **Dependency:** Google Calendar connector/authorization must be in place before the worker can pull.
+**Shipped:**
+- **Read-only OAuth collector.** A Node port of the Garmin app's auth: `server/scripts/authorize-calendar.mjs` mints a `calendar.readonly` refresh token (reusing the existing Google Cloud OAuth client), stored in a gitignored `server/config/` file; the worker refreshes it silently (`google.auth.fromJSON` → `UserRefreshClient`). The claude.ai connector can't drive a headless cron, so the collector holds its own token.
+- **Collector + data model.** `server/src/workers/calendar-time.ts` (a `node-cron` pull worker, `googleapis` dynamically imported so it's optional) reads each calendar, splits events at **local-timezone midnight**, and aggregates minutes + event_count per `(day, category)` into a new `time_metrics` table (migration `003_time.sql`; `resources.type` CHECK widened to `calendar`). Runs are idempotent (delete-then-insert over a rolling window); `npm run backfill:calendar` loads history. The resource auto-registers via `ensureCalendarResource`.
+- **Categorization = 1 calendar : 1 category.** Config-driven in `server/config/calendars.json` (`id`, `category`, `tier`); `calendars.example.json` is the committed placeholder. `tier` groups domains into productive / neutral / low-value.
+- **Read + analytics routes.** `GET /api/metrics/time` (+ `/bucketed`); `/api/analytics/summary` gained a calendar case (tracked hours + productive hours WoW/MoM), and the headline `weekly-usage` overlay now includes Time as weekly **productive-share %**.
+- **Dashboard panel.** `calendar-panel.component.ts`: stacked hours-by-domain (7d/Month/Year), a productive-vs-waste **quality-mix** bar, **day fragmentation** (switches/day stat + per-bucket in the tooltip), and a per-domain **WoW/MoM + longest-streak** table. Colors use a dataviz-validated CVD-safe categorical palette; follows the shipped card/two-column conventions.
+
+**Deferred (by preference):** no live "what am I doing now" widget and no untracked/gap-time metric; the panel follows the platform-wide dark-only styling until the deferred light/dark theming pass.
+
+**One-time setup before it collects:** run the authorize script (browser), copy the token to the server, drop in the real `calendars.json`, then `npm run backfill:calendar`. Publish the OAuth consent screen ("In production") or the refresh token expires after ~7 days.
 
 ### Antigravity usage
 Connect and measure Antigravity usage and ingest it through the dynamic-resource model as an `api`-type resource.
@@ -106,7 +113,7 @@ A scheduled agent, running locally on the Oracle server, that reviews all collec
 ## Docs
 
 ### Update README
-Bring the README in line with the current architecture and the features above — including the parts already built but under-documented (pacing agent, `analytics` route, the `DASHBOARD_TOKEN` dashboard gate, and the full extension set) plus each roadmap feature as it ships.
+Bring the README in line with the current architecture and the features above — including the parts already built but under-documented (pacing agent, `analytics` route, the `DASHBOARD_TOKEN` dashboard gate, the full extension set, and now the **Google Calendar time-analytics collector** — the `calendar` resource type, `time_metrics` table, `authorize-calendar` / `backfill:calendar` scripts, and `server/config/calendars.json` setup) plus each roadmap feature as it ships.
 
 ---
 
@@ -115,7 +122,7 @@ Bring the README in line with the current architecture and the features above �
 The first UI/UX polish pass has shipped (see UI/UX section); **further UI/UX changes are deliberately deferred to after the feature work** per the user's preference.
 
 1. **RAM analytics** — ✅ shipped (2026-08-04). Utilization-% gap closed via agent-reported total RAM; per-machine RAM% (tooltip/caption) and a cross-machine RAM% overlay.
-2. **Google Calendar time analytics** — high value, and the OAuth credentials already exist (pending connector authorization).
+2. **Google Calendar time analytics** — ✅ shipped (2026-08-04). Read-only OAuth collector → `time_metrics`; per-domain hours, quality mix, fragmentation, and WoW/MoM + streaks panel.
 3. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
 4. **Antigravity usage** — gated on the usage-exposure investigation.
 5. **Finance** — highest value but blocked on encryption-at-rest; sequence it after the security prerequisite lands.

@@ -11,6 +11,7 @@ import {
   RegisterResponse,
   Resource,
   ResourceType,
+  TimeMetricsResponse,
   UsageBucketPoint,
   UsagePoint,
   WeeklyUsageResource,
@@ -91,6 +92,29 @@ export class ApiService {
     return this.http
       .get<{ points: ApiPoint[] }>(`${this.base}/api/metrics/api`, { params })
       .pipe(map((r) => r.points));
+  }
+
+  // Daily minutes/event_count per category for a calendar (time-tracking)
+  // resource. Returns the full envelope (points + category→tier map). A high
+  // limit covers the panel's wide 2×-range daily fetch (e.g. 2×365 days × 7 cats).
+  timeMetrics(resourceId: number, from?: string, to?: string): Observable<TimeMetricsResponse> {
+    let params = new HttpParams().set('resource_id', resourceId).set('limit', 20000);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<TimeMetricsResponse>(`${this.base}/api/metrics/time`, { params });
+  }
+
+  // Day- or week-bucketed calendar time (server-side rollup) for the wide views.
+  timeBucketed(
+    resourceId: number,
+    bucket: 'day' | 'week',
+    from?: string,
+    to?: string
+  ): Observable<TimeMetricsResponse> {
+    let params = new HttpParams().set('resource_id', resourceId).set('bucket', bucket);
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<TimeMetricsResponse>(`${this.base}/api/metrics/time/bucketed`, { params });
   }
 
   // Week-over-week / month-over-month comparison for every resource.

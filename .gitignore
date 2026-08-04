@@ -14,6 +14,12 @@ server/.env
 agents/**/config.json
 agents/**/tasks.json
 
+# Google Calendar worker secrets (OAuth client, refresh token, real calendar IDs).
+# Only the *.example.json placeholder is committed.
+server/config/google-credentials.json
+server/config/google-token.json
+server/config/calendars.json
+
 # Agent runtime state
 *.ndjson
 agents/**/*.log

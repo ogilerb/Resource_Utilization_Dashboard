@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { validateQuery, getValidatedQuery } from '../middleware/validate.js';
+import { categoriesInTier } from '../lib/calendars.js';
 
 export const analyticsRouter = Router();
 
@@ -52,7 +53,9 @@ function metric(
 
 analyticsRouter.get('/summary', async (_req, res, next) => {
   try {
-    const [resources, compute, usage, api] = await Promise.all([
+    // Productive-tier categories drive the calendar "productive hours" secondary.
+    const productive = categoriesInTier('productive');
+    const [resources, compute, usage, api, calendar] = await Promise.all([
       query<{ id: number; type: string }>(
         `SELECT id, type FROM resources ORDER BY created_at ASC`
       ),
@@ -94,11 +97,29 @@ analyticsRouter.get('/summary', async (_req, res, next) => {
          WHERE day > current_date - 60
          GROUP BY resource_id`
       ),
+      // Calendar: tracked hours (primary) + productive hours (secondary). Both
+      // are utilization-positive (more = green), like the other resource types.
+      query(
+        `SELECT resource_id,
+           sum(minutes) FILTER (WHERE day > current_date - 7)                                                  / 60.0 AS trk_cur_w,
+           sum(minutes) FILTER (WHERE day > current_date - 14 AND day <= current_date - 7)                     / 60.0 AS trk_prev_w,
+           sum(minutes) FILTER (WHERE day > current_date - 30)                                                 / 60.0 AS trk_cur_m,
+           sum(minutes) FILTER (WHERE day > current_date - 60 AND day <= current_date - 30)                    / 60.0 AS trk_prev_m,
+           sum(minutes) FILTER (WHERE day > current_date - 7  AND category = ANY($1::text[]))                                              / 60.0 AS prd_cur_w,
+           sum(minutes) FILTER (WHERE day > current_date - 14 AND day <= current_date - 7  AND category = ANY($1::text[]))                 / 60.0 AS prd_prev_w,
+           sum(minutes) FILTER (WHERE day > current_date - 30 AND category = ANY($1::text[]))                                              / 60.0 AS prd_cur_m,
+           sum(minutes) FILTER (WHERE day > current_date - 60 AND day <= current_date - 30 AND category = ANY($1::text[]))                 / 60.0 AS prd_prev_m
+         FROM time_metrics
+         WHERE day > current_date - 60
+         GROUP BY resource_id`,
+        [productive]
+      ),
     ]);
 
     const computeBy = new Map(compute.rows.map((r) => [r['resource_id'], r]));
     const usageBy = new Map(usage.rows.map((r) => [r['resource_id'], r]));
     const apiBy = new Map(api.rows.map((r) => [r['resource_id'], r]));
+    const calendarBy = new Map(calendar.rows.map((r) => [r['resource_id'], r]));
 
     const out = resources.rows.map((r) => {
       switch (r.type) {
@@ -124,6 +145,15 @@ analyticsRouter.get('/summary', async (_req, res, next) => {
             secondary: metric('tokens', row, 'tok'),
           };
         }
+        case 'calendar': {
+          const row = calendarBy.get(r.id) as Record<string, number | null> | undefined;
+          return {
+            resource_id: r.id,
+            type: r.type,
+            ...metric('tracked_hours', row, 'trk'),
+            secondary: metric('productive_hours', row, 'prd'),
+          };
+        }
         default:
           return { resource_id: r.id, type: r.type, metric: 'unknown', week: delta(null, null), month: delta(null, null) };
       }
@@ -142,11 +172,13 @@ const weeklyUsageSchema = z.object({
 // GET /api/analytics/weekly-usage?weeks= — weekly usage percentage per resource,
 // as one time-series line each, for overlaying every resource on a shared
 // week (x) vs usage-% (y) chart. Only resource types with a real percentage are
-// included: compute → avg(cpu_percent), usage → avg(utilization). API/cost
+// included: compute → avg(cpu_percent), usage → avg(utilization), calendar →
+// weekly productive-share % (productive minutes ÷ tracked minutes). API/cost
 // resources have no percentage and are omitted.
 analyticsRouter.get('/weekly-usage', validateQuery(weeklyUsageSchema), async (req, res, next) => {
   try {
     const q = getValidatedQuery<z.infer<typeof weeklyUsageSchema>>(req);
+    const productive = categoriesInTier('productive');
     const { rows } = await query(
       `WITH weekly AS (
          SELECT resource_id,
@@ -163,6 +195,14 @@ analyticsRouter.get('/weekly-usage', validateQuery(weeklyUsageSchema), async (re
           WHERE window_kind = 'seven_day'
             AND timestamp >= now() - ($1::int || ' weeks')::interval
           GROUP BY resource_id, week_start
+         UNION ALL
+         SELECT resource_id,
+                date_trunc('week', day::timestamp) AS week_start,
+                (100.0 * sum(minutes) FILTER (WHERE category = ANY($2::text[]))
+                       / nullif(sum(minutes), 0))::real AS pct
+           FROM time_metrics
+          WHERE day >= (now() - ($1::int || ' weeks')::interval)::date
+          GROUP BY resource_id, week_start
        )
        SELECT r.id AS resource_id, r.name, r.type,
               json_agg(json_build_object(
@@ -173,7 +213,7 @@ analyticsRouter.get('/weekly-usage', validateQuery(weeklyUsageSchema), async (re
          JOIN resources r ON r.id = w.resource_id
         GROUP BY r.id, r.name, r.type
         ORDER BY r.type, r.name`,
-      [q.weeks]
+      [q.weeks, productive]
     );
     res.json({ resources: rows });
   } catch (err) {

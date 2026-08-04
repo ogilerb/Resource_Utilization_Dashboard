@@ -186,6 +186,29 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0.75rem
 .analytics-row .name { font-weight: 600; }
 .analytics-row .value { font-variant-numeric: tabular-nums; }
 
+/* --- Calendar panel (quality mix + per-domain table) --- */
+.compact-gauges { grid-template-columns: repeat(2, 1fr); }
+.qmix {
+  display: flex; height: 14px; border-radius: 7px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.qmix .qseg { height: 100%; }
+.qmix .qseg + .qseg { border-left: 2px solid var(--panel); } /* 2px surface gap */
+.qmix-legend { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--muted); }
+.qmix-key { display: inline-flex; align-items: center; gap: 0.35rem; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+.time-table { margin-top: 0.5rem; }
+.time-row {
+  display: grid; grid-template-columns: minmax(120px, 2fr) 1fr 1fr 1fr 1fr;
+  gap: 0.5rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px solid var(--border);
+}
+.time-row:last-child { border-bottom: none; }
+.time-row.head { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.time-row .name { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; }
+.time-row .value { font-variant-numeric: tabular-nums; text-align: right; }
+.time-row .value.delta { background: none; padding: 0; justify-content: flex-end; }
+
 /* --- Delta badge --- */
 .delta {
   display: inline-flex; align-items: center; gap: 0.15rem; white-space: nowrap;

@@ -26,6 +26,7 @@ import { RegisterResponse, ResourceType } from '../models';
         <option value="compute">compute — a machine reporting CPU/RAM</option>
         <option value="api">api — an LLM/API usage + cost source</option>
         <option value="usage">usage — a subscription limit gauge (e.g. Claude Pro)</option>
+        <option value="calendar">calendar — Google Calendar time tracking (usually auto-registered by the worker)</option>
       </select>
 
       @if (type === 'compute') {

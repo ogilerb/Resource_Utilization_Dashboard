@@ -16,6 +16,7 @@ import { relativeTime } from '../util';
 import { ComputeChartComponent } from './compute-chart.component';
 import { ApiChartComponent } from './api-chart.component';
 import { UsagePanelComponent } from './usage-panel.component';
+import { CalendarPanelComponent } from './calendar-panel.component';
 import { AnalyticsPanelComponent } from './analytics-panel.component';
 import { MemoryUsagePanelComponent } from './memory-usage-panel.component';
 import { DeltaBadgeComponent } from './delta-badge.component';
@@ -32,6 +33,7 @@ import { DeltaBadgeComponent } from './delta-badge.component';
     ComputeChartComponent,
     ApiChartComponent,
     UsagePanelComponent,
+    CalendarPanelComponent,
     AnalyticsPanelComponent,
     MemoryUsagePanelComponent,
     DeltaBadgeComponent,
@@ -111,6 +113,7 @@ import { DeltaBadgeComponent } from './delta-badge.component';
                   @case ('compute') { <app-compute-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
                   @case ('api') { <app-api-chart [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
                   @case ('usage') { <app-usage-panel [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
+                  @case ('calendar') { <app-calendar-panel [resource]="r" [compact]="!layout.pref(r.id).expanded" /> }
                 }
               </div>
 

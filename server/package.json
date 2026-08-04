@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/db/migrate.ts",
+    "authorize:calendar": "node scripts/authorize-calendar.mjs",
+    "backfill:calendar": "tsx src/workers/backfill-calendar.ts",
     "test": "DASHBOARD_TOKEN=test-dashboard-token node --import tsx --test test/*.test.ts",
     "lint": "tsc --noEmit -p tsconfig.json"
   },
@@ -20,6 +22,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
+    "googleapis": "^144.0.0",
     "node-cron": "^3.0.3",
     "pg": "^8.12.0",
     "ws": "^8.18.0",

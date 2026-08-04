@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { validateQuery, getValidatedQuery } from '../middleware/validate.js';
+import { categoryTiers } from '../lib/calendars.js';
 
 export const metricsRouter = Router();
 
@@ -21,6 +22,11 @@ const bucketedSchema = rangeSchema.extend({
 // Usage gauges are sampled sparsely (~15 min), so their wide views bucket by
 // day (month view) or week (year view) rather than hour/day.
 const usageBucketedSchema = rangeSchema.extend({
+  bucket: z.enum(['day', 'week']),
+});
+
+// Calendar time buckets are already per-day; the year view rolls them up to weeks.
+const timeBucketedSchema = rangeSchema.extend({
   bucket: z.enum(['day', 'week']),
 });
 
@@ -182,6 +188,55 @@ metricsRouter.get('/api', validateQuery(rangeSchema), async (req, res, next) => 
       [q.resource_id, q.from ?? null, q.to ?? null, q.limit]
     );
     res.json({ resource_id: q.resource_id, points: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/metrics/time?resource_id=&from=&to= — daily minutes/event_count per
+// category (life-domain). `categories` carries the config-order category→tier
+// map so the panel can group (productive/neutral/waste), order, and color the
+// stack consistently even for categories with no data in the window.
+metricsRouter.get('/time', validateQuery(rangeSchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof rangeSchema>>(req);
+    const { rows } = await query(
+      `SELECT day, category, minutes, event_count
+         FROM time_metrics
+        WHERE resource_id = $1
+          AND ($2::timestamptz IS NULL OR day >= $2::date)
+          AND ($3::timestamptz IS NULL OR day <= $3::date)
+        ORDER BY day ASC, category ASC
+        LIMIT $4`,
+      [q.resource_id, q.from ?? null, q.to ?? null, q.limit]
+    );
+    res.json({ resource_id: q.resource_id, points: rows, categories: categoryTiers() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/metrics/time/bucketed?resource_id=&from=&to=&bucket=day|week
+// Rolls the per-day rows up to day or week buckets (year view uses week) by
+// summing minutes/event_count per bucket per category.
+metricsRouter.get('/time/bucketed', validateQuery(timeBucketedSchema), async (req, res, next) => {
+  try {
+    const q = getValidatedQuery<z.infer<typeof timeBucketedSchema>>(req);
+    const { rows } = await query(
+      `SELECT date_trunc($5::text, day::timestamp)::date AS day,
+              category,
+              sum(minutes)::int     AS minutes,
+              sum(event_count)::int AS event_count
+         FROM time_metrics
+        WHERE resource_id = $1
+          AND ($2::timestamptz IS NULL OR day >= $2::date)
+          AND ($3::timestamptz IS NULL OR day <= $3::date)
+        GROUP BY 1, category
+        ORDER BY 1 ASC, category ASC
+        LIMIT $4`,
+      [q.resource_id, q.from ?? null, q.to ?? null, q.limit, q.bucket]
+    );
+    res.json({ resource_id: q.resource_id, points: rows, categories: categoryTiers() });
   } catch (err) {
     next(err);
   }

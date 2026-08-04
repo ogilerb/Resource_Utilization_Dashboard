@@ -14,6 +14,8 @@ const METRIC_LABELS: Record<string, string> = {
   utilization: 'Weekly usage',
   cost: 'Spend',
   tokens: 'Tokens',
+  tracked_hours: 'Tracked',
+  productive_hours: 'Productive',
 };
 
 // Per-resource line colors: the dark-surface categorical steps from the data-viz
@@ -119,6 +121,9 @@ export class AnalyticsPanelComponent implements OnInit, OnDestroy {
         return formatBytes(value);
       case 'tokens':
         return formatNumber(value);
+      case 'tracked_hours':
+      case 'productive_hours':
+        return `${value.toFixed(value < 10 ? 1 : 0)}h`;
       default:
         return String(value);
     }
