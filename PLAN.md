@@ -18,9 +18,18 @@ Anything added here must respect the invariants the platform is built on:
 
 ## UI/UX
 
-### Rework dashboard UI/UX
-The current dashboard is a flat auto-rendered grid of per-resource cards driven by a generic `ResourceComponent` that switches visualization by `type`. That scaled the build but doesn't scale the *reading* — as resource count and data types grow (compute, AI usage, time, finance), a single undifferentiated grid buries the signal.
+**Deferred by preference:** the remaining UI/UX work below is intentionally sequenced *after* the new data sources/features. A first polish pass shipped (2026-08-04, see "Shipped so far"), and I'd rather build out the other roadmap features next and return to further UX/UI changes afterward. New panels added in the meantime should still follow the shipped two-column layout and chart conventions so there's less to retrofit later.
 
+### Rework dashboard UI/UX
+The dashboard started as a flat auto-rendered grid of per-resource cards driven by a generic `ResourceComponent` that switches visualization by `type`. That scaled the build but doesn't scale the *reading* — as resource count and data types grow (compute, AI usage, time, finance), a single undifferentiated grid buries the signal.
+
+**Shipped so far (2026-08-04):**
+- **Two-column overview.** The headline analytics graph (weekly usage % per resource) is now the main show on the left ~2/3 with the week-over-week / month-over-month comparison table stacked directly below it; per-resource cards moved to a stacked right ~1/3 rail. Container widened (1200→1600px) to cut the empty side gutters. The old table/graph toggle and the S/M/L card-sizing are gone; drag-to-reorder and expand/collapse remain.
+- **Utilization-positive delta colors.** Period-over-period arrows now read increase = green (good), decrease = red — using more of a resource than the previous period is the win on a utilization dashboard.
+- **Pace instead of raw % for subscription graphs.** Claude/Gemini usage trends now plot *pace* (utilization ÷ fraction-of-week-elapsed; 100% = on track) rather than raw utilization, so the line no longer sawtooths down to 0 at each weekly reset. Includes a dashed on-pace guide line, a gauge pace readout, and a new `pace_avg`/`pace_max` on the server's `GET /api/metrics/usage/bucketed` for the month/year views.
+
+**Still to do (return to after other features):**
+- **More UX/UI changes** the user has in mind, to be specified when we come back to this.
 - **Goals:** a clear information hierarchy (top-level KPI/summary row → grouped sections → per-resource detail), smoother overview↔detail navigation, and one consistent visual system across every chart.
 - **Approach:** group resources by domain (Compute · AI Usage · Time · Finance) instead of one flat list; add a summary strip of headline numbers (current spend, active machines, weekly AI burn); unify chart styling, tooltips, and the date-range selector so every panel behaves identically.
 - **Theming:** commit to consistent light **and** dark support end-to-end (the roadmap adds more surfaces, so this needs to be systematic, not per-component).
@@ -99,10 +108,12 @@ Bring the README in line with the current architecture and the features above �
 
 ## Suggested order
 
-1. **UI/UX rework** — the foundation the new surfaces render into; doing it first avoids retrofitting every new panel.
-2. **RAM analytics** — cheapest win; data already exists, only needs the utilization-% reporting gap closed.
-3. **Google Calendar time analytics** — high value, and the OAuth credentials already exist (pending connector authorization).
-4. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
-5. **Antigravity usage** — gated on the usage-exposure investigation.
-6. **Finance** — highest value but blocked on encryption-at-rest; sequence it after the security prerequisite lands.
+The first UI/UX polish pass has shipped (see UI/UX section); **further UI/UX changes are deliberately deferred to after the feature work** per the user's preference.
+
+1. **RAM analytics** — cheapest win; data already exists, only needs the utilization-% reporting gap closed.
+2. **Google Calendar time analytics** — high value, and the OAuth credentials already exist (pending connector authorization).
+3. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
+4. **Antigravity usage** — gated on the usage-exposure investigation.
+5. **Finance** — highest value but blocked on encryption-at-rest; sequence it after the security prerequisite lands.
+6. **Further UI/UX rework** — the deferred hierarchy/grouping/summary-strip/theming work plus the user's additional changes; do it once the new surfaces exist so it's one consistent pass, not per-panel. New panels built before then should follow the shipped conventions to limit retrofitting.
 7. **README** — update continuously as each item ships.
