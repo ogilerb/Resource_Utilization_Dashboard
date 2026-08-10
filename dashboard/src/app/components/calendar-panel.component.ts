@@ -24,11 +24,19 @@ const RANGES: { key: RangeKey; label: string; days: number; bucket: 'day' | 'wee
 ];
 
 // Categorical hues (dataviz dark slots 1–8, validated CVD-safe in stack order on
-// this dark surface). Color follows the domain's identity/config order, never
-// its tier. An improbable 9th+ category folds to a neutral gray rather than a
-// cycled hue.
+// this dark surface). Used as a FALLBACK: when a calendar carries a `color` from
+// calendars.json (its real Google Calendar colour) we use that instead, so the
+// stack/table match Google. Color follows the domain's identity/config order,
+// never its tier. An improbable 9th+ category with no colour folds to a neutral
+// gray rather than a cycled hue.
 const DOMAIN_HUES = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 const OVERFLOW_HUE = '#898781';
+
+// The colour for the i-th category: its Google colour when configured, else the
+// palette slot, else the overflow gray.
+function hueFor(cat: { color?: string } | undefined, i: number): string {
+  return cat?.color ?? DOMAIN_HUES[i] ?? OVERFLOW_HUE;
+}
 
 // Tier = a good/neutral/bad quality state, so it uses the dashboard's status
 // colors (always shown with a text label, never color alone).
@@ -246,7 +254,7 @@ export class CalendarPanelComponent implements OnInit, AfterViewInit, OnDestroy 
     const tierOf = new Map(order.map((c) => [c.category, c.tier]));
     const colorOf = (cat: string) => {
       const i = order.findIndex((c) => c.category === cat);
-      return i < 0 ? OVERFLOW_HUE : DOMAIN_HUES[i] ?? OVERFLOW_HUE;
+      return i < 0 ? OVERFLOW_HUE : hueFor(order[i], i);
     };
 
     const now = Date.now();
@@ -365,7 +373,7 @@ export class CalendarPanelComponent implements OnInit, AfterViewInit, OnDestroy 
       const datasets = order.map((c, i) => ({
         label: c.category,
         data: (minutesBy.get(c.category) ?? []).map((m) => m / 60),
-        backgroundColor: DOMAIN_HUES[i] ?? OVERFLOW_HUE,
+        backgroundColor: hueFor(c, i),
         borderColor: SURFACE, // 1.5px surface gap between stacked segments
         borderWidth: 1.5,
         borderRadius: 2,

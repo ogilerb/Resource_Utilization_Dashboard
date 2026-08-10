@@ -71,10 +71,13 @@ export interface TimePoint {
 }
 
 // Config-order category→tier map, so the panel groups/orders/colors the stack
-// consistently even for categories with no data in the window.
+// consistently even for categories with no data in the window. `color` is the
+// calendar's Google colour when configured; the panel falls back to its own
+// palette when absent.
 export interface CalendarCategory {
   category: string;
   tier: CalendarTier;
+  color?: string; // hex from calendars.json (matches Google Calendar)
 }
 
 export interface TimeMetricsResponse {

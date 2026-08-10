@@ -4,9 +4,12 @@ import { config } from '../config.js';
 /**
  * The calendars.json config: one entry per Google calendar. `category` is the
  * life-domain name (1 calendar = 1 category); `tier` groups categories for the
- * Productive-vs-Waste metric. Loaded from GOOGLE_CALENDARS_FILE (gitignored;
- * copy calendars.example.json). Placeholder ("FILL_ME…") ids are ignored so an
- * un-configured deploy simply yields an empty list and disables the feature.
+ * Productive-vs-Waste metric. `color` is an optional hex the panel uses to match
+ * the calendar's Google colour (fill it once via scripts/sync-calendar-colors.mjs;
+ * omitted → the panel falls back to its own palette). Loaded from
+ * GOOGLE_CALENDARS_FILE (gitignored; copy calendars.example.json). Placeholder
+ * ("FILL_ME…") ids are ignored so an un-configured deploy simply yields an empty
+ * list and disables the feature.
  */
 export type CalendarTier = 'productive' | 'neutral' | 'waste';
 
@@ -14,6 +17,7 @@ export interface CalendarDef {
   id: string;
   category: string;
   tier: CalendarTier;
+  color?: string; // hex, e.g. '#039be5' — the calendar's Google colour
 }
 
 let cache: CalendarDef[] | null = null;
@@ -45,7 +49,14 @@ export function categoriesInTier(tier: CalendarTier): string[] {
     .map((c) => c.category);
 }
 
-/** Config-order list of {category, tier} — the frontend's stable stacking order. */
-export function categoryTiers(): { category: string; tier: CalendarTier }[] {
-  return loadCalendars().map((c) => ({ category: c.category, tier: c.tier }));
+/**
+ * Config-order list of {category, tier, color?} — the frontend's stable stacking
+ * order, plus each calendar's Google colour when configured.
+ */
+export function categoryTiers(): { category: string; tier: CalendarTier; color?: string }[] {
+  return loadCalendars().map((c) => ({
+    category: c.category,
+    tier: c.tier,
+    ...(c.color ? { color: c.color } : {}),
+  }));
 }
