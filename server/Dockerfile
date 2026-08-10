@@ -15,6 +15,8 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
+# One-off ops scripts (e.g. sync-calendar-colors.mjs), run via `docker compose run`.
+COPY scripts ./scripts
 EXPOSE 4000
 # Migrations run automatically on startup (see src/index.ts).
 CMD ["node", "dist/index.js"]

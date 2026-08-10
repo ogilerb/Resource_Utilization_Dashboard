@@ -11,8 +11,25 @@
  * calendar's `backgroundColor` (the hex Google displays) into a `color` field,
  * preserving the file's structure and comment. Existing colours are kept unless
  * --force is passed. You only need to run this once; the worker never does.
+ *
+ * On the Dockerised server (no host node_modules), run it inside the image with
+ * the config dir mounted read-write so it can update calendars.json in place:
+ *
+ *   docker compose run --rm --no-deps \
+ *     -v ./server/config:/work:rw \
+ *     -e GOOGLE_CALENDAR_TOKEN_PATH=/work/google-token.json \
+ *     -e GOOGLE_CALENDARS_FILE=/work/calendars.json \
+ *     server node scripts/sync-calendar-colors.mjs
+ *
+ * then `docker compose restart server` so the new colours are picked up.
  */
-import 'dotenv/config';
+// dotenv is only for local runs (loads server/.env); in Docker env comes from
+// -e flags, so a missing dotenv must not crash the script.
+try {
+  await import('dotenv/config');
+} catch {
+  /* no .env — env vars are supplied directly */
+}
 import { readFile, writeFile } from 'node:fs/promises';
 import { google } from 'googleapis';
 
