@@ -44,6 +44,26 @@ describe('ingest', { skip: hasDb ? false : 'no test Postgres reachable' }, () =>
     await pool.end();
   });
 
+  it('allows cross-origin ingest preflight (browser extensions) but not on gated routes', async () => {
+    const preflight = (path: string) =>
+      fetch(`${ctx.baseUrl}${path}`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'chrome-extension://abcdefghijklmnop',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type,x-api-key',
+        },
+      });
+
+    const ingest = await preflight('/api/ingest/usage');
+    assert.equal(ingest.status, 204);
+    assert.equal(ingest.headers.get('access-control-allow-origin'), '*');
+    assert.match(ingest.headers.get('access-control-allow-headers') ?? '', /x-api-key/);
+
+    const gated = await preflight('/api/resources');
+    assert.equal(gated.headers.get('access-control-allow-origin'), null);
+  });
+
   it('rejects ingest without an API key', async () => {
     const res = await fetch(`${ctx.baseUrl}/api/ingest/compute`, {
       method: 'POST',

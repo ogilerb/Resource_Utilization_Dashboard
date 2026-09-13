@@ -25,8 +25,16 @@ export function createApp() {
     })
   );
 
-  // CORS. Empty origin = no CORS headers (same-origin production deployment
-  // behind nginx). Only an explicit `*` opens it to any origin.
+  // Ingest is always cross-origin: the browser extensions push from a
+  // chrome-extension:// origin, which triggers a CORS preflight (JSON body +
+  // x-api-key header). It's authenticated by per-agent API key in a header — no
+  // cookies or ambient credentials — so allowing any origin exposes nothing.
+  // Mounted before the global CORS block so a restrictive CORS_ORIGIN list
+  // can't answer (and reject) the extensions' preflight first.
+  app.use('/api/ingest', cors());
+
+  // CORS for everything else. Empty origin = no CORS headers (same-origin
+  // production deployment behind nginx). Only an explicit `*` opens it to any origin.
   const corsOrigin = config.corsOrigin.trim();
   if (corsOrigin) {
     app.use(
