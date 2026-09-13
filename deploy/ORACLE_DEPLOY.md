@@ -50,10 +50,17 @@ POSTGRES_PASSWORD=change-me-to-a-long-random-string
 # REQUIRED — dashboard access token. Without it, all read/admin endpoints and
 # the WebSocket fail closed (HTTP 503). Generate a strong one:
 DASHBOARD_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))" 2>/dev/null || openssl rand -base64 32)
+# REQUIRED before the finance feature — app-level encryption key for sensitive
+# columns (bank/Plaid tokens, balances). Back this up somewhere SEPARATE from
+# the database; losing it makes encrypted data unrecoverable.
+DATA_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))" 2>/dev/null || openssl rand -base64 32)
+# Same-origin deployment: leave CORS empty so no cross-origin is allowed.
+CORS_ORIGIN=
 # Optional AI usage workers (leave blank to disable):
 ANTHROPIC_ADMIN_KEY=
 GEMINI_BILLING_TABLE=
 EOF
+chmod 600 .env              # secrets: make the file readable only by your user
 cat .env    # copy the DASHBOARD_TOKEN value — you'll paste it into the dashboard once
 ```
 
@@ -107,11 +114,15 @@ Then browse to `http://<public-ip>`.
 
 > ⚠️ Read/admin endpoints and the WebSocket are gated by `DASHBOARD_TOKEN`
 > (set in step 3) — without the token they return 401, and if the token is
-> unset they fail closed with 503. That secret is now the only thing between
-> the public internet and your data, so on a public IP: use a long random
-> token, always serve over **HTTPS** (step 8) so it isn't sent in the clear,
-> and prefer Tailscale or an OCI rule limited to your own IP anyway. Note the
-> token is not per-user and has no audit trail; treat a leak as full access.
+> unset they fail closed with 503. That secret is the only thing between the
+> network and your data, so: use a long random token and **serve over HTTPS**
+> so neither the token nor your data crosses the wire in clear text. Once the
+> finance feature is storing balances/transactions, **HTTPS is mandatory, not
+> optional** (step 8) — plain HTTP is only acceptable for the CPU/RAM-only phase
+> on a trusted network. The token is not per-user and has no audit trail; treat
+> a leak as full access. Financial columns are additionally encrypted at rest
+> with `DATA_ENCRYPTION_KEY` (step 3), so a DB or backup leak yields ciphertext
+> for those fields.
 
 ---
 
@@ -156,13 +167,31 @@ docker compose pull && docker compose up -d --build   # redeploy after changes
 docker compose down                   # stop everything (until you bring it up again)
 ```
 
-**Backups:** the database lives in the `pgdata` Docker volume. Snapshot it with:
+**Backups:** the database lives in the `pgdata` Docker volume. Financial columns
+are already app-encrypted, but a full dump still contains everything else, so
+**encrypt the dump** and keep it off the server (`sudo apt-get install -y age`):
 
 ```bash
-docker compose exec postgres pg_dump -U telemetry telemetry > backup-$(date +%F).sql
+docker compose exec -T postgres pg_dump -U telemetry telemetry \
+  | age -p > backup-$(date +%F).sql.age     # prompts for a passphrase
 ```
 
-**Adding HTTPS later:** either put Caddy in front (automatic certs) or use
-`deploy/nginx.conf` with certbot on the host, pointing a domain's A record at the
-public IP. With Tailscale you can instead run `tailscale cert` for HTTPS on the
-tailnet name.
+Store the passphrase in your password manager, not next to the backup, and
+never leave a plaintext `.sql` dump on disk.
+
+**HTTPS (required before storing financial data):** pick one —
+
+- **Tailscale (simplest, no domain):** issue a cert for your tailnet name and
+  serve the port-80 container over TLS. Exact `serve` flags vary by Tailscale
+  version (`tailscale serve --help`), but the flow is:
+  ```bash
+  sudo tailscale cert "<your-magicdns-name>"   # name from `tailscale status`
+  sudo tailscale serve --bg 80                 # front it as https://<name>
+  ```
+  The cert auto-renews; browse to `https://<your-magicdns-name>`.
+- **Public domain:** put Caddy in front (automatic Let's Encrypt certs) or use
+  `deploy/nginx.conf` with certbot, pointing a domain's A record at the public
+  IP. That config already sends HSTS + CSP.
+
+The app and nginx send an HSTS header, so browsers refuse plain HTTP once they've
+seen HTTPS — set up TLS before first load.

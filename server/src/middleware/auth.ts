@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { query } from '../db/pool.js';
+import { hashApiKey } from '../lib/apiKey.js';
 
 export interface AuthedResource {
   id: number;
@@ -39,8 +40,8 @@ export async function requireApiKey(req: Request, res: Response, next: NextFunct
     const { rows } = await query<AuthedResource>(
       `SELECT id, name, type, interval_seconds, metadata
          FROM resources
-        WHERE api_key = $1 AND status = 'active'`,
-      [key]
+        WHERE api_key_hash = $1 AND status = 'active'`,
+      [hashApiKey(key)]
     );
     if (rows.length === 0) {
       res.status(401).json({ error: 'Invalid API key' });

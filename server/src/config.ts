@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
 
 function str(name: string, fallback?: string): string {
   const v = process.env[name];
@@ -23,15 +24,37 @@ function bool(name: string, fallback: boolean): boolean {
   return v === 'true' || v === '1';
 }
 
+function dbSsl(): { ca?: string; rejectUnauthorized: boolean } | undefined {
+  if (!bool('PGSSL', false)) return undefined;
+  const caPath = process.env.PGSSLROOTCERT;
+  // Validate against a provided CA (managed Postgres). With no CA, still verify
+  // by default; only skip on an explicit opt-out for a self-signed dev server —
+  // never silently, since a disabled check invites a MITM on the DB connection.
+  if (caPath) return { ca: readFileSync(caPath, 'utf8'), rejectUnauthorized: true };
+  if (bool('PGSSL_INSECURE', false)) return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+}
+
 export const config = {
   port: num('PORT', 4000),
-  corsOrigin: str('CORS_ORIGIN', '*'),
+  // Empty string = no CORS headers (same-origin production deployment). Only an
+  // explicit `*` opens it to any origin. Unset falls back to the dev SPA origin.
+  corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:4200',
 
   // Single shared secret gating all read/admin endpoints and the WebSocket.
   // When empty the API fails CLOSED (refuses to serve those routes) so a deploy
   // is never accidentally left open. Generate with:
   //   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
   dashboardToken: process.env.DASHBOARD_TOKEN || '',
+
+  // App-level encryption key for sensitive columns (bank/Plaid credentials,
+  // balances). Supply DATA_ENCRYPTION_KEY (32 bytes as base64/base64url/hex) or
+  // point DATA_ENCRYPTION_KEY_FILE at a mounted key file. Loaded lazily by
+  // lib/crypto.ts, which fails closed if a feature needs it and it's missing.
+  encryption: {
+    key: process.env.DATA_ENCRYPTION_KEY || '',
+    keyFile: process.env.DATA_ENCRYPTION_KEY_FILE || '',
+  },
 
   db: {
     connectionString: process.env.DATABASE_URL || undefined,
@@ -40,7 +63,7 @@ export const config = {
     user: process.env.PGUSER,
     password: process.env.PGPASSWORD,
     database: process.env.PGDATABASE,
-    ssl: bool('PGSSL', false) ? { rejectUnauthorized: false } : undefined,
+    ssl: dbSsl(),
   },
 
   ingestRate: {

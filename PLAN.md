@@ -12,7 +12,7 @@ Anything added here must respect the invariants the platform is built on:
 
 - **Dynamic resource model.** A new data source is added by inserting a row via `POST /api/resources` and pointing a collector at the issued API key — no per-resource routes, no hardcoded frontend panels. Ingest resolves the resource from the key. New integrations (Calendar, Antigravity, finance) must plug in this way.
 - **New metric shapes get their own table, not overloaded columns.** `api_metrics` is tokens/cost; `compute_metrics` is CPU/RAM. For a genuinely new shape (time buckets, transactions), follow the migration `002` precedent: widen the `resources.type` CHECK constraint and add a purpose-built table, rather than bending an existing one.
-- **Sensitive data stays behind the gate.** Financial data sits behind the existing `DASHBOARD_TOKEN` dashboard gate; encryption-at-rest is still pending and is a prerequisite for storing balances/transactions (see banking-data-hardening notes).
+- **Sensitive data stays behind the gate, and is encrypted at rest.** Financial data sits behind the `DASHBOARD_TOKEN` gate; sensitive columns (bank/Plaid tokens, balances) must additionally be run through `server/src/lib/crypto.ts` (`encrypt`/`decrypt`, keyed by `DATA_ENCRYPTION_KEY`) before they touch Postgres. The encryption module and surrounding hardening (hashed API keys, CSP/HSTS, auth rate-limiting, tightened CORS, validated DB TLS) shipped 2026-08-13; what remains is operational (set the key, enable TLS, encrypt the DB volume). See banking-data-hardening notes.
 
 ---
 
@@ -90,7 +90,7 @@ Put unused Gemini allowance and idle compute to productive use instead of leavin
 ### Bank connections, budgeting & money analytics
 Connect bank accounts and add budgeting, spending analytics, and financial-statement generation.
 
-- **Security prerequisites (blockers):** this is the most sensitive data in the system. It sits behind the existing `DASHBOARD_TOKEN` gate, but **encryption-at-rest must land first**, and the balances feature is still pending (see banking-data-hardening notes). Do not store transactions/balances before encryption-at-rest is in place.
+- **Security prerequisites:** this is the most sensitive data in the system. The one-time hardening is now in place (2026-08-13): app-level column encryption (`lib/crypto.ts`), hashed API keys, CSP/HSTS headers, auth rate-limiting, tightened CORS, validated DB TLS. **Before storing anything:** (1) set `DATA_ENCRYPTION_KEY` and run every Plaid `access_token`, account identifier, and balance through `encrypt()`; (2) serve over TLS; (3) encrypt the Oracle volume. Keep aggregatable, low-sensitivity fields (category, day, amount sign) in cleartext so analytics still work — encrypt only the truly sensitive columns.
 - **Connection:** an aggregation provider (e.g. Plaid) or a comparable method to pull accounts, balances, and transactions.
 - **Data model:** new tables for `accounts`, `transactions`, and `budgets` (category, period, limit) — a genuinely new shape, so add tables rather than reusing metrics tables, and widen the resource `type` if accounts are modeled as resources.
 - **Analytics:** spending by category, cash flow in/out, net-worth-over-time, budget vs. actual.
@@ -125,6 +125,10 @@ The first UI/UX polish pass has shipped (see UI/UX section); **further UI/UX cha
 2. **Google Calendar time analytics** — ✅ shipped (2026-08-04). Read-only OAuth collector → `time_metrics`; per-domain hours, quality mix, fragmentation, and WoW/MoM + streaks panel.
 3. **Review bot + spare-compute plumbing** — build the scheduling/dispatch substrate once, reuse it for finance and Calendar analysis.
 4. **Antigravity usage** — gated on the usage-exposure investigation.
-5. **Finance** — highest value but blocked on encryption-at-rest; sequence it after the security prerequisite lands.
+5. **Finance** — highest value. The security prerequisites (app-level encryption module + platform hardening) shipped 2026-08-13; the remaining gates are operational (set `DATA_ENCRYPTION_KEY`, enable TLS, encrypt the volume). Build accounts/transactions/budgets against `lib/crypto.ts` for the sensitive columns.
 6. **Further UI/UX rework** — the deferred hierarchy/grouping/summary-strip/theming work plus the user's additional changes; do it once the new surfaces exist so it's one consistent pass, not per-panel. New panels built before then should follow the shipped conventions to limit retrofitting.
 7. **README** — update continuously as each item ships.
+
+
+
+There's also a bug when you reload the page when not on the overview that it doesn't show anything

@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { dashboardTokenValid } from '../middleware/dashboardAuth.js';
 
@@ -22,6 +22,38 @@ import { dashboardTokenValid } from '../middleware/dashboardAuth.js';
 const authed = new Set<WebSocket>();
 const AUTH_GRACE_MS = 5_000;
 
+// Per-IP throttle on FAILED ws auth, mirroring the REST authLimiter so the live
+// stream isn't a rate-limit-free path for guessing the token. Fixed window.
+const WS_AUTH_WINDOW_MS = 15 * 60_000;
+const WS_AUTH_MAX_FAILURES = 30;
+const wsAuthFailures = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(req: IncomingMessage): string {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0]!.trim();
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
+function wsAuthBlocked(ip: string): boolean {
+  const entry = wsAuthFailures.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    wsAuthFailures.delete(ip);
+    return false;
+  }
+  return entry.count >= WS_AUTH_MAX_FAILURES;
+}
+
+function recordWsAuthFailure(ip: string): void {
+  const now = Date.now();
+  const entry = wsAuthFailures.get(ip);
+  if (!entry || now > entry.resetAt) {
+    wsAuthFailures.set(ip, { count: 1, resetAt: now + WS_AUTH_WINDOW_MS });
+  } else {
+    entry.count += 1;
+  }
+}
+
 export interface ComputePoint {
   resourceId: number;
   timestamp: string;
@@ -35,7 +67,8 @@ let wss: WebSocketServer | null = null;
 export function attachWebSocket(server: Server, path = '/ws'): WebSocketServer {
   wss = new WebSocketServer({ server, path });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const ip = clientIp(req);
     subscriptions.set(ws, new Set());
 
     // Drop the socket if it hasn't authenticated within the grace window.
@@ -56,10 +89,16 @@ export function attachWebSocket(server: Server, path = '/ws'): WebSocketServer {
       }
 
       if (msg.action === 'auth') {
+        if (wsAuthBlocked(ip)) {
+          ws.send(JSON.stringify({ type: 'error', error: 'Too many failed attempts' }));
+          ws.close();
+          return;
+        }
         if (typeof msg.token === 'string' && dashboardTokenValid(msg.token)) {
           authed.add(ws);
           ws.send(JSON.stringify({ type: 'authed' }));
         } else {
+          recordWsAuthFailure(ip);
           ws.send(JSON.stringify({ type: 'error', error: 'Unauthorized' }));
           ws.close();
         }
@@ -114,4 +153,5 @@ export function closeWebSocket(): void {
   wss = null;
   subscriptions.clear();
   authed.clear();
+  wsAuthFailures.clear();
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { validateBody } from '../middleware/validate.js';
-import { generateApiKey } from '../lib/apiKey.js';
+import { generateApiKey, hashApiKey } from '../lib/apiKey.js';
 import { config } from '../config.js';
 
 export const resourcesRouter = Router();
@@ -62,10 +62,10 @@ resourcesRouter.post('/', validateBody(createSchema), async (req, res, next) => 
     // but issuing one anyway lets a push source (e.g. Gemini estimator) use it.
     const apiKey = generateApiKey();
     const { rows } = await query(
-      `INSERT INTO resources (name, type, api_key, interval_seconds, metadata)
+      `INSERT INTO resources (name, type, api_key_hash, interval_seconds, metadata)
        VALUES ($1, $2, $3, $4, $5::jsonb)
        RETURNING id, name, type, status, interval_seconds, metadata, created_at`,
-      [body.name, body.type, apiKey, body.interval_seconds, JSON.stringify(body.metadata)]
+      [body.name, body.type, hashApiKey(apiKey), body.interval_seconds, JSON.stringify(body.metadata)]
     );
     res.status(201).json({ resource: rows[0], api_key: apiKey });
   } catch (err) {

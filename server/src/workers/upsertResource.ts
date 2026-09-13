@@ -1,5 +1,5 @@
 import { pool, query } from '../db/pool.js';
-import { generateApiKey } from '../lib/apiKey.js';
+import { generateApiKey, hashApiKey } from '../lib/apiKey.js';
 
 /**
  * Ensure an 'api' resource with the given name exists, returning its id.
@@ -14,11 +14,11 @@ export async function ensureApiResource(name: string): Promise<number> {
   if (existing.rows.length > 0) return existing.rows[0].id;
 
   const { rows } = await query<{ id: number }>(
-    `INSERT INTO resources (name, type, api_key, interval_seconds, metadata)
+    `INSERT INTO resources (name, type, api_key_hash, interval_seconds, metadata)
      VALUES ($1, 'api', $2, 86400, '{"source":"pull-worker"}'::jsonb)
-     ON CONFLICT (api_key) DO NOTHING
+     ON CONFLICT (api_key_hash) DO NOTHING
      RETURNING id`,
-    [name, generateApiKey()]
+    [name, hashApiKey(generateApiKey())]
   );
   if (rows.length > 0) return rows[0].id;
 
@@ -44,11 +44,11 @@ export async function ensureCalendarResource(name: string): Promise<number> {
   if (existing.rows.length > 0) return existing.rows[0].id;
 
   const { rows } = await query<{ id: number }>(
-    `INSERT INTO resources (name, type, api_key, interval_seconds, metadata)
+    `INSERT INTO resources (name, type, api_key_hash, interval_seconds, metadata)
      VALUES ($1, 'calendar', $2, 3600, '{"source":"pull-worker"}'::jsonb)
-     ON CONFLICT (api_key) DO NOTHING
+     ON CONFLICT (api_key_hash) DO NOTHING
      RETURNING id`,
-    [name, generateApiKey()]
+    [name, hashApiKey(generateApiKey())]
   );
   if (rows.length > 0) return rows[0].id;
 

@@ -18,3 +18,21 @@ export const ingestLimiter = rateLimit({
     'unknown',
   message: { error: 'Rate limit exceeded' },
 });
+
+/**
+ * Throttle repeated FAILED dashboard-token attempts per IP. Normal authenticated
+ * traffic (200s) and validation errors don't consume the budget — only 401s do —
+ * so honest polling is never limited, but online guessing of the token is capped.
+ * The token is 32 random bytes (not brute-forceable); this is belt-and-suspenders
+ * plus basic abuse/DoS protection.
+ */
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode !== 401,
+  keyGenerator: (req) => req.ip || 'unknown',
+  message: { error: 'Too many failed attempts; try again later' },
+});
