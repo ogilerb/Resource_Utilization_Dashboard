@@ -4,6 +4,8 @@
 **Target:** PostgreSQL schema `inventory`, integrated with `resource_utilization_dashboard`
 **Status of this doc:** implementation-ready. Section 8 contains the only open decisions.
 
+> **Repo adaptation (2026-09-13) — read before implementing.** This spec was written without the dashboard's source. In this repo: tables live in `public` with an `inv_` prefix (no `inventory` schema / `search_path`); enums become `text` + `CHECK`; migrations are forward-only numbered SQL in `server/migrations/` (no `down`s, no Alembic); the XLSX import is Node (`server/scripts/import-inventory-xlsx.mjs` with `exceljs`), not Python; the plpgsql `add_item`/`log_use` helpers are replaced by the `POST /api/inventory/import` API. **Sections 2, 4 (transformation rules + acceptance checks), 3 and 5 remain the data-rule reference; sections 6–8 are superseded by [PLAN.md § Inventory](PLAN.md#inventory).**
+
 ---
 
 ## 1. Goal
